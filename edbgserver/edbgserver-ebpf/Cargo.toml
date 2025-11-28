@@ -1,0 +1,17 @@
+[package]
+name = "edbgserver-ebpf"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+edbgserver-common = { path = "../edbgserver-common" }
+
+aya-ebpf = { workspace = true }
+aya-log-ebpf = { workspace = true }
+
+[build-dependencies]
+which = { workspace = true }
+
+[[bin]]
+name = "edbgserver"
+path = "src/main.rs"
