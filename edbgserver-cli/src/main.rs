@@ -34,24 +34,6 @@ async fn main() -> Result<()> {
     let opt = Cli::parse();
     env_logger::init();
 
-    // 1. 确定目标 PID
-    // let target_file: PathBuf;
-    // let target_pid = if let Some(p) = opt.pid {
-    //     p
-    // } else if let Some(ref bin) = opt.binary {
-    //     // 简单的查找逻辑
-    //     let procs = proc::find_process_by_binary(bin)?;
-    //     if procs.is_empty() {
-    //         anyhow::bail!("Process not found");
-    //     }
-    //     target_file = procs[0].exe_path.clone();
-    //     procs[0].pid as u32
-    // } else {
-    //     anyhow::bail!("Please provide --pid or --binary");
-    // };
-
-    // info!("Targeting PID: {}", target_pid);
-
     // 2. 初始化 Aya
     let mut ebpf = init_aya();
 
@@ -79,7 +61,7 @@ async fn main() -> Result<()> {
         }
     };
 
-    program
+    let link = program
         .attach(
             "trigger_breakpoint",
             target_path.canonicalize()?,

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::{fs, os::fd::OwnedFd};
 
 use aya::maps::{MapData, RingBuf};
@@ -30,7 +31,7 @@ pub struct EdbgTarget {
     pub last_context: Option<DataT>,
     pub ring_buf: RingBuf<MapData>,
     pub notifier: AsyncFd<OwnedFd>,
-    saved_breakpoints: std::collections::HashMap<u64, u8>,
+    active_breakpoints: HashMap<u64, BreakpointHandle>,
 }
 
 impl EdbgTarget {
@@ -46,7 +47,7 @@ impl EdbgTarget {
             last_context: None,
             ring_buf: ringbuf,
             notifier,
-            saved_breakpoints: std::collections::HashMap::new(),
+            active_breakpoints: std::collections::HashMap::new(),
         })
     }
 }
