@@ -51,12 +51,11 @@ impl run_blocking::BlockingEventLoop for EdbgEventLoop {
                         let mut event_received = false;
 
                         while let Some(item) = target.ring_buf.next() {
-                            // 安全地将字节转换为 DataT 结构
                             let ptr = item.as_ptr() as *const DataT;
                             let data = unsafe { std::ptr::read_unaligned(ptr) };
 
                             println!("Hit UProbe! PID: {}, PC: {:#x}", data.pid, data.pc);
-                            target.last_context = Some(data);
+                            target.context = Some(data);
                             event_received = true;
                         }
 
@@ -82,11 +81,11 @@ impl run_blocking::BlockingEventLoop for EdbgEventLoop {
         // 当 wait_for_stop_reason 返回 IncomingData(0x03) 后，gdbstub 会调用此函数
         log::debug!(
             "GDB sent interrupt (Ctrl-C), stopping target pid {}",
-            target.pid
+            target.get_pid()?
         );
 
         // 1. 向实际进程发送 SIGSTOP (你需要实现这个 helper)
-        send_sigstop(target.pid);
+        send_sigstop(target.get_pid()?);
 
         // 2. 返回 StopReason，告诉 GDB 我们是因为信号停下的
         Ok(Some(SingleThreadStopReason::Signal(Signal::SIGINT)))

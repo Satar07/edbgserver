@@ -1,61 +1,94 @@
 use std::collections::HashMap;
 use std::{fs, os::fd::OwnedFd};
 
-use aya::maps::{MapData, RingBuf};
+use anyhow::{Result, anyhow};
+use aya::{
+    Ebpf,
+    maps::{MapData, RingBuf},
+    programs::{UProbe, uprobe::UProbeLinkId},
+};
 use edbgserver_common::DataT;
-
-use gdbstub::target::ext::base::multithread::MultiThreadResumeOps;
-use gdbstub::target::ext::breakpoints::BreakpointsOps;
-
 use gdbstub::{
     common::{Signal, Tid},
     target::{
         Target, TargetError, TargetResult,
-        ext::base::{
-            BaseOps,
-            multithread::{MultiThreadBase, MultiThreadResume},
+        ext::{
+            base::{
+                BaseOps,
+                multithread::{MultiThreadBase, MultiThreadResume, MultiThreadResumeOps},
+            },
+            breakpoints::BreakpointsOps,
         },
     },
 };
 use gdbstub_arch::aarch64::{AArch64, reg::AArch64CoreRegs};
-use log::{debug, warn};
-use tokio::io::unix::AsyncFd;
+use log::{debug, error, warn};
+use std::os::fd::AsFd;
+use tokio::io::{Interest, unix::AsyncFd};
 
-use crate::utils::{ProcessMem, send_sigcont};
+use crate::utils::send_sigcont;
 
 mod breakpoint;
 
 pub struct EdbgTarget {
-    pub pid: i32,
-    pub mem: ProcessMem,
-    pub last_context: Option<DataT>,
+    ebpf: Ebpf,
+    binary: String,
+    pub context: Option<DataT>,
     pub ring_buf: RingBuf<MapData>,
     pub notifier: AsyncFd<OwnedFd>,
-    active_breakpoints: HashMap<u64, BreakpointHandle>,
+    active_breakpoints: HashMap<u64, UProbeLinkId>,
 }
 
 impl EdbgTarget {
-    pub fn new(
-        pid: i32,
-        ringbuf: RingBuf<MapData>,
-        notifier: AsyncFd<OwnedFd>,
-    ) -> std::io::Result<Self> {
-        let mem = ProcessMem::open(pid)?;
-        Ok(Self {
-            pid,
-            mem,
-            last_context: None,
+    pub fn new(binary: String, mut ebpf: Ebpf) -> Self {
+        let program: &mut UProbe = ebpf
+            .program_mut("edbgserver")
+            .expect("cannot find ebpf program edbgserver")
+            .try_into()
+            .expect("failed to convert ebpf program to uProbe");
+        program.load().expect("failed to load uProbe program");
+        let event_map = ebpf.take_map("EVENTS").expect("EVENTS map not found");
+        let ringbuf = RingBuf::try_from(event_map).expect("failed to convert map to ringbuf");
+        let notifier = AsyncFd::with_interest(
+            ringbuf
+                .as_fd()
+                .try_clone_to_owned()
+                .expect("failed to clone ringbuf fd"),
+            Interest::READABLE,
+        )
+        .expect("failed to create AsyncFd for ringbuf");
+        Self {
+            ebpf,
+            binary,
+            context: None,
             ring_buf: ringbuf,
             notifier,
-            active_breakpoints: std::collections::HashMap::new(),
-        })
+            active_breakpoints: HashMap::new(),
+        }
+    }
+
+    fn program_mut(&mut self) -> &mut UProbe {
+        self.ebpf
+            .program_mut("edbgserver")
+            .expect("cannot find ebpf program edbgserver")
+            .try_into()
+            .expect("failed to convert ebpf program to uProbe")
+    }
+
+    pub fn get_pid(&self) -> Result<u32> {
+        if let Some(ctx) = self.context {
+            Ok(ctx.pid)
+        } else {
+            error!("No target PID set");
+            Err(anyhow!("No target PID set"))
+        }
     }
 }
 
 impl Target for EdbgTarget {
     type Arch = AArch64;
 
-    type Error = &'static str;
+    type Error = anyhow::Error;
 
     fn base_ops(&mut self) -> BaseOps<'_, Self::Arch, Self::Error> {
         BaseOps::MultiThread(self)
@@ -73,7 +106,7 @@ impl MultiThreadBase for EdbgTarget {
         regs: &mut AArch64CoreRegs,
         tid: gdbstub::common::Tid,
     ) -> TargetResult<(), Self> {
-        if let Some(ctx) = &self.last_context {
+        if let Some(ctx) = &self.context {
             if ctx.pid == tid.get() as u32 {
                 // POSIX:tid -> Kernel:LWP ID(pid)
                 regs.x = ctx.regs;
@@ -89,7 +122,7 @@ impl MultiThreadBase for EdbgTarget {
             "Requesting registers for TID {} but no matching context",
             tid
         );
-        debug!("last_context: {:?}", self.last_context);
+        debug!("last_context: {:?}", self.context);
         Ok(())
     }
 
@@ -106,28 +139,51 @@ impl MultiThreadBase for EdbgTarget {
         &mut self,
         start_addr: <Self::Arch as gdbstub::arch::Arch>::Usize,
         data: &mut [u8],
-        _tid: gdbstub::common::Tid,
+        tid: gdbstub::common::Tid,
     ) -> TargetResult<usize, Self> {
-        self.mem.read(start_addr, data).map_err(TargetError::Io)
+        use process_memory::{CopyAddress, TryIntoProcessHandle};
+        let handle = (tid.get() as i32).try_into_process_handle().map_err(|e| {
+            warn!("Failed to create process handle: {}", e);
+            TargetError::Io(e)
+        })?;
+        match handle.copy_address(start_addr as usize, data) {
+            Ok(_) => Ok(data.len()),
+            Err(e) => {
+                warn!("Failed to read memory at {:#x}: {}", start_addr, e);
+                Err(TargetError::Io(e))
+            }
+        }
     }
 
     fn write_addrs(
         &mut self,
         start_addr: <Self::Arch as gdbstub::arch::Arch>::Usize,
         data: &[u8],
-        _tid: gdbstub::common::Tid,
+        tid: gdbstub::common::Tid,
     ) -> TargetResult<(), Self> {
-        self.mem
-            .write(start_addr, data)
-            .map(|_| ())
-            .map_err(TargetError::Io)
+        use process_memory::{PutAddress, TryIntoProcessHandle};
+        let handle = (tid.get() as i32).try_into_process_handle().map_err(|e| {
+            warn!("Failed to create process handle: {}", e);
+            TargetError::Io(e)
+        })?;
+        match handle.put_address(start_addr as usize, data) {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                warn!("Failed to write memory at {:x}: {}", start_addr, e);
+                Err(TargetError::Io(e))
+            }
+        }
     }
 
     fn list_active_threads(
         &mut self,
         thread_is_active: &mut dyn FnMut(gdbstub::common::Tid),
     ) -> Result<(), Self::Error> {
-        let path = format!("/proc/{}/task", self.pid);
+        if self.context.is_none() {
+            warn!("No context available to list active threads, skip active check");
+            return Ok(());
+        }
+        let path = format!("/proc/{}/task", self.context.unwrap().pid);
         if let Ok(entries) = fs::read_dir(path) {
             for entry in entries.flatten() {
                 if let Ok(fname) = entry.file_name().into_string()
@@ -149,24 +205,13 @@ impl MultiThreadBase for EdbgTarget {
 
 impl MultiThreadResume for EdbgTarget {
     fn resume(&mut self) -> Result<(), Self::Error> {
-        // GDB 告诉我们继续运行。
-        // 我们需要向目标进程发送 SIGCONT。
-        debug!("Resuming process {}", self.pid);
-
-        // 这里只是简单的发信号。在 eBPF 场景下，单步调试(Step)比较复杂，
-        // 通常需要 PTRACE_SINGLESTEP。这里为了简单，我们把 Step 也处理为 Continue，
-        // 或者你可以根据 self.resume_actions 区分处理。
-
-        send_sigcont(self.pid);
-
-        // 清除上下文缓存，因为程序运行后寄存器就变了
-        self.last_context = None;
-
+        let target_pid = self.get_pid()?;
+        debug!("Resuming process {}", target_pid);
+        send_sigcont(target_pid);
         Ok(())
     }
 
     fn clear_resume_actions(&mut self) -> Result<(), Self::Error> {
-        // 可以在这里清空内部记录的 actions 列表
         Ok(())
     }
 
@@ -175,8 +220,6 @@ impl MultiThreadResume for EdbgTarget {
         _tid: Tid,
         _signal: Option<Signal>,
     ) -> Result<(), Self::Error> {
-        // 记录该线程需要继续运行
-        // 这里的简化版只需要在 resume() 里统一处理
         Ok(())
     }
 }
