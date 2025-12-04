@@ -53,11 +53,11 @@ fn try_edbgserver(ctx: &ProbeContext) -> Result<i64, i64> {
     Ok(0)
 }
 
-#[cfg(not(test))]
-#[panic_handler]
-fn panic(_info: &core::panic::PanicInfo) -> ! {
-    loop {}
-}
+// #[cfg(not(test))]
+// #[panic_handler]
+// fn panic(_info: &core::panic::PanicInfo) -> ! {
+//     loop {}
+// }
 
 #[unsafe(link_section = "license")]
 #[unsafe(no_mangle)]
