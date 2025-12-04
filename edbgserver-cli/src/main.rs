@@ -1,109 +1,59 @@
-use anyhow::Result;
-use aya::{maps::RingBuf, programs::UProbe};
 use clap::Parser;
-use std::os::fd::AsFd;
-use std::path::Path;
 
 use gdbstub::stub::{DisconnectReason, GdbStub};
 use log::{debug, error, info, warn};
 use tokio::net::TcpListener;
 
-use crate::{
-    connection::TokioConnection, event::EdbgEventLoop, proc::find_process_by_binary,
-    target::EdbgTarget,
-};
+use crate::{connection::TokioConnection, event::EdbgEventLoop, target::EdbgTarget};
 mod connection;
 mod event;
-mod proc;
 mod target;
 mod utils;
 
 #[derive(Debug, Parser)]
+#[command(version, about, long_about = None)]
 struct Cli {
     #[clap(short, long, default_value_t = 3333)]
     port: u32,
-
-    // #[clap(long)]
-    // pid: Option<u32>,
-    #[clap(short, long, required = true)]
-    binary: String,
+    #[clap(long)]
+    pid: Option<u32>,
+    #[clap(short, long)]
+    target: String,
+    #[clap(short, long)]
+    break_point: u64,
 }
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() {
     let opt = Cli::parse();
     env_logger::init();
+    let ebpf = init_aya();
 
-    // 2. 初始化 Aya
-    let mut ebpf = init_aya();
-
-    // 3. 加载 eBPF 程序
-    let program: &mut UProbe = ebpf
-        .program_mut("edbgserver")
-        .unwrap()
-        .try_into()
-        .expect("Failed to convert eBPF program to UProbe");
-
-    program.load().expect("Failed to load eBPF program");
-
-    // 假设我们要 Hook 目标程序的某个函数，这里需要具体的二进制路径和符号/偏移
-    // 实际使用中可能需要解析 ELF 或者由用户输入
-
-    let target_path = Path::new(&opt.binary).canonicalize();
-    let target_path = match target_path {
-        Ok(p) => p,
-        Err(e) => {
-            error!(
-                "Failed to canonicalize target binary path: {} \n maybe not exists target file",
-                e
-            );
-            return Err(e.into());
-        }
-    };
-
-    let link = program
-        .attach(
-            "trigger_breakpoint",
-            target_path.canonicalize()?,
-            None,
-            None,
-        )
-        .expect("Failed to attach eBPF program");
-
-    // 4. 初始化 RingBuf
-    let ring_buf = RingBuf::try_from(ebpf.take_map("EVENTS").expect("EVENTS map not found"))?;
-    let ring_buf_fd = ring_buf.as_fd().try_clone_to_owned()?;
-    let notifier =
-        tokio::io::unix::AsyncFd::with_interest(ring_buf_fd, tokio::io::Interest::READABLE)?;
-
-    // 5. 等待 GDB 连接
+    // connect gdb
     let listen_addr = format!("0.0.0.0:{}", opt.port);
-    let listener = TcpListener::bind(&listen_addr).await?;
+    let listener = TcpListener::bind(&listen_addr)
+        .await
+        .expect("Failed to bind TCP listener");
     info!("Waiting for GDB connect on {}", listen_addr);
-    let (stream, addr) = listener.accept().await?;
+    let (stream, addr) = listener
+        .accept()
+        .await
+        .expect("Failed to accept connection");
     info!("GDB connected from {}", addr);
 
-    // 设置 TCP 使得 peek/read 不会永远阻塞，以便我们能轮询 eBPF
-    // stream.set_nonblocking(true)?;
-
-    // let connection: Box<dyn ConnectionExt<Error = std::io::Error>> = Box::new(stream);
-
-    // 6. 初始化 Target 和 GDBStub
-    let p = find_process_by_binary(&opt.binary)?;
-
-    // 用第一个就行
-    let target_pid = p[0].pid;
-
-    let mut target = EdbgTarget::new(target_pid, ring_buf, notifier)?;
-
-    // run_gdb_session(stream, target).await?;
+    // main target new
+    let mut target = EdbgTarget::new(opt.target, ebpf);
+    target
+        .attach_init_probe(opt.break_point, opt.pid)
+        .expect("Failed to attach init probe");
     let connection = TokioConnection::new(stream);
     let gdb = GdbStub::new(connection);
+
+    // main run
     let result =
-        tokio::task::spawn_blocking(move || gdb.run_blocking::<EdbgEventLoop>(&mut target)).await?;
-
-    // // 7. 运行 Event Loop
-
+        tokio::task::spawn_blocking(move || gdb.run_blocking::<EdbgEventLoop>(&mut target))
+            .await
+            .expect("GDB Stub task panicked");
     info!("Starting GDB Session...");
     match result {
         Ok(disconnect_reason) => match disconnect_reason {
@@ -119,11 +69,6 @@ async fn main() -> Result<()> {
         },
         Err(e) => error!("GDBStub Error: {}", e),
     }
-
-    // // 退出时恢复进程运行，否则进程会一直处于 SIGSTOP 状态
-    // send_sigcont(target_pid as i32);
-
-    Ok(())
 }
 
 fn init_aya() -> aya::Ebpf {
