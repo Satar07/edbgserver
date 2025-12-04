@@ -11,7 +11,8 @@ int main() {
 
   while (1) {
     trigger_breakpoint();
-    sleep(1);
+    getchar();
+    // sleep(3);
   }
   return 0;
 }

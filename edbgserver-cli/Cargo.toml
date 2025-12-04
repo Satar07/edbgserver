@@ -1,5 +1,5 @@
 [package]
-name = "edbgserver"
+name = "edbgserve-cli"
 version = "0.1.0"
 edition.workspace = true
 
@@ -23,6 +23,8 @@ tokio = { workspace = true, features = [
 ] }
 clap = { workspace = true, features = ["derive"] }
 serial_test = "3.2.0"
+gdbstub = "0.7.8"
+gdbstub_arch = "0.3.2"
 [build-dependencies]
 anyhow = { workspace = true }
 aya-build = { workspace = true }

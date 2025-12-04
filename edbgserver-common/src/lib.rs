@@ -1,7 +1,7 @@
 #![no_std]
 
 #[repr(C)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct DataT {
     pub pid: u32,
     pub tgid: u32,
