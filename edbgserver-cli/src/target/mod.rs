@@ -29,6 +29,7 @@ use tokio::io::{Interest, unix::AsyncFd};
 use crate::utils::send_sigcont;
 
 mod breakpoint;
+mod memory_map;
 
 pub struct EdbgTarget {
     ebpf: Ebpf,
@@ -96,6 +97,13 @@ impl Target for EdbgTarget {
     fn support_breakpoints(&mut self) -> Option<BreakpointsOps<'_, Self>> {
         Some(self)
     }
+
+    #[inline(always)]
+    fn support_memory_map(
+        &mut self,
+    ) -> Option<gdbstub::target::ext::memory_map::MemoryMapOps<'_, Self>> {
+        Some(self)
+    }
 }
 
 impl MultiThreadBase for EdbgTarget {
@@ -129,7 +137,7 @@ impl MultiThreadBase for EdbgTarget {
         _regs: &<Self::Arch as gdbstub::arch::Arch>::Registers,
         _tid: gdbstub::common::Tid,
     ) -> TargetResult<(), Self> {
-        warn!("write_registers not fully implemented (requires ptrace struct mapping)");
+        warn!("write_registers not fully implemented (requires ptrace or inline hooking)");
         Ok(())
     }
 
@@ -147,7 +155,7 @@ impl MultiThreadBase for EdbgTarget {
         match handle.copy_address(start_addr as usize, data) {
             Ok(_) => Ok(data.len()),
             Err(e) => {
-                warn!("Failed to read memory at {:#x}: {}", start_addr, e);
+                debug!("Failed to read memory at {:#x}: {}", start_addr, e); // that usual happends
                 Err(TargetError::Io(e))
             }
         }
