@@ -8,7 +8,6 @@ use aya_ebpf::{
     programs::ProbeContext,
 };
 use aya_log_ebpf::{debug, error};
-
 use edbgserver_common::DataT;
 
 const SIGSTOP: u32 = 19;
