@@ -25,27 +25,51 @@ struct Cli {
 
 #[tokio::main]
 async fn main() {
-    let opt = Cli::parse();
     env_logger::init();
+    let opt = Cli::parse();
+    debug!("start edbgserver at pid: {}", std::process::id());
     let ebpf = init_aya();
+
+    // main target new
+    let mut target = EdbgTarget::new(ebpf);
+    target
+        .attach_init_probe(opt.target.as_str(), opt.break_point, opt.pid)
+        .expect("Failed to attach init probe");
 
     // connect gdb
     let listen_addr = format!("0.0.0.0:{}", opt.port);
     let listener = TcpListener::bind(&listen_addr)
         .await
         .expect("Failed to bind TCP listener");
-    info!("Waiting for GDB connect on {}", listen_addr);
-    let (stream, addr) = listener
-        .accept()
-        .await
-        .expect("Failed to accept connection");
-    info!("GDB connected from {}", addr);
 
-    // main target new
-    let mut target = EdbgTarget::new(opt.target, ebpf);
-    target
-        .attach_init_probe(opt.break_point, opt.pid)
-        .expect("Failed to attach init probe");
+    // wait for gdb connect and target initial trap
+    println!(
+        "Waiting for GDB connect on {} AND Target Initial Trap...",
+        listen_addr
+    );
+    let tcp_task = async {
+        info!("Waiting for GDB connection on {}...", listen_addr);
+        let res = listener.accept().await;
+        match &res {
+            Ok((_, addr)) => info!("GDB connected from {}", addr),
+            Err(e) => error!("Failed to accept GDB connection: {}", e),
+        }
+        res
+    };
+    let trap_task = async {
+        info!("Waiting for Target to hit the initial breakpoint...");
+        let res = target.wait_for_init_trap().await;
+        match &res {
+            Ok(_) => info!("Target context captured successfully via eBPF"),
+            Err(e) => error!("Failed to catch initial trap: {}", e),
+        }
+        res
+    };
+    let (tcp_res, trap_res) = tokio::join!(tcp_task, trap_task);
+    let (stream, addr) = tcp_res.expect("Failed to accept connection");
+    info!("GDB connected from {}", addr);
+    trap_res.expect("Failed to catch initial trap");
+
     let connection = TokioConnection::new(stream);
     let gdb = GdbStub::new(connection);
 

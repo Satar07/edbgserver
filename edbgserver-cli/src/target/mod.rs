@@ -22,7 +22,7 @@ use gdbstub::{
     },
 };
 use gdbstub_arch::aarch64::{AArch64, reg::AArch64CoreRegs};
-use log::{debug, error, warn};
+use log::{debug, error, info, warn};
 use std::os::fd::AsFd;
 use tokio::io::{Interest, unix::AsyncFd};
 
@@ -32,7 +32,6 @@ mod breakpoint;
 
 pub struct EdbgTarget {
     ebpf: Ebpf,
-    binary: String,
     pub context: Option<DataT>,
     pub ring_buf: RingBuf<MapData>,
     pub notifier: AsyncFd<OwnedFd>,
@@ -40,7 +39,7 @@ pub struct EdbgTarget {
 }
 
 impl EdbgTarget {
-    pub fn new(binary: String, mut ebpf: Ebpf) -> Self {
+    pub fn new(mut ebpf: Ebpf) -> Self {
         let program: &mut UProbe = ebpf
             .program_mut("edbgserver")
             .expect("cannot find ebpf program edbgserver")
@@ -59,7 +58,6 @@ impl EdbgTarget {
         .expect("failed to create AsyncFd for ringbuf");
         Self {
             ebpf,
-            binary,
             context: None,
             ring_buf: ringbuf,
             notifier,
@@ -131,7 +129,7 @@ impl MultiThreadBase for EdbgTarget {
         _regs: &<Self::Arch as gdbstub::arch::Arch>::Registers,
         _tid: gdbstub::common::Tid,
     ) -> TargetResult<(), Self> {
-        log::warn!("write_registers not fully implemented (requires ptrace struct mapping)");
+        warn!("write_registers not fully implemented (requires ptrace struct mapping)");
         Ok(())
     }
 
@@ -179,6 +177,7 @@ impl MultiThreadBase for EdbgTarget {
         &mut self,
         thread_is_active: &mut dyn FnMut(gdbstub::common::Tid),
     ) -> Result<(), Self::Error> {
+        debug!("listing active threads");
         if self.context.is_none() {
             warn!("No context available to list active threads, skip active check");
             return Ok(());
@@ -205,6 +204,7 @@ impl MultiThreadBase for EdbgTarget {
 
 impl MultiThreadResume for EdbgTarget {
     fn resume(&mut self) -> Result<(), Self::Error> {
+        info!("resume multithread process");
         let target_pid = self.get_pid()?;
         debug!("Resuming process {}", target_pid);
         send_sigcont(target_pid);
@@ -212,14 +212,16 @@ impl MultiThreadResume for EdbgTarget {
     }
 
     fn clear_resume_actions(&mut self) -> Result<(), Self::Error> {
+        info!("clear resume actions");
         Ok(())
     }
 
     fn set_resume_action_continue(
         &mut self,
-        _tid: Tid,
+        tid: Tid,
         _signal: Option<Signal>,
     ) -> Result<(), Self::Error> {
+        info!("set resume action continue for TID {:?}", tid);
         Ok(())
     }
 }

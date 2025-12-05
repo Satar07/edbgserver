@@ -1,9 +1,8 @@
 use gdbstub::conn::{Connection, ConnectionExt};
 use std::io;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::runtime::Handle;
-// 关键点：必须引入这两个扩展 Trait 才能使用 write_u8, read_u8, peek 等方法
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 pub struct TokioConnection {
     pub stream: TcpStream,

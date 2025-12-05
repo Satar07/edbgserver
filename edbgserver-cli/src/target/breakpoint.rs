@@ -1,6 +1,7 @@
 use std::{path::PathBuf, str::FromStr};
 
 use anyhow::Result;
+use edbgserver_common::DataT;
 use gdbstub::target::{
     TargetError, TargetResult,
     ext::breakpoints::{Breakpoints, SwBreakpoint, SwBreakpointOps},
@@ -94,9 +95,18 @@ impl EdbgTarget {
         Err(TargetError::NonFatal)
     }
 
-    pub fn attach_init_probe(&mut self, break_point: u64, target_pid: Option<u32>) -> Result<()> {
-        info!("Attaching Initial UProbe at {} (Global)", break_point);
-        let binary_target = PathBuf::from_str(&self.binary)?;
+    pub fn attach_init_probe(
+        &mut self,
+        binary: &str,
+        break_point: u64,
+        target_pid: Option<u32>,
+    ) -> Result<()> {
+        let binary_target = PathBuf::from_str(binary)?;
+        info!(
+            "Attaching Initial UProbe at {}:{}",
+            binary_target.canonicalize()?.as_os_str().display(),
+            break_point
+        );
         let link_id = self.program_mut().attach(
             break_point,
             binary_target.canonicalize()?,
@@ -106,5 +116,22 @@ impl EdbgTarget {
 
         self.active_breakpoints.insert(break_point, link_id);
         Ok(())
+    }
+
+    pub async fn wait_for_init_trap(&mut self) -> Result<()> {
+        info!("Waiting for target process to hit the initial breakpoint...");
+
+        loop {
+            let mut guard = self.notifier.readable_mut().await?;
+            if let Some(item) = self.ring_buf.next() {
+                let ptr = item.as_ptr() as *const DataT;
+                let data = unsafe { std::ptr::read_unaligned(ptr) };
+                info!("Initial UProbe Hit! PID: {}, PC: {:#x}", data.pid, data.pc);
+                self.context = Some(data);
+                guard.clear_ready();
+                return Ok(());
+            }
+            guard.clear_ready();
+        }
     }
 }

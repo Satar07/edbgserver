@@ -7,14 +7,14 @@ use aya_ebpf::{
     maps::RingBuf,
     programs::ProbeContext,
 };
-use aya_log_ebpf::{error, info};
+use aya_log_ebpf::{debug, error};
 
 use edbgserver_common::DataT;
 
 const SIGSTOP: u32 = 19;
 
 const RINGBUF_SIZE: u32 = 64 * 1024;
-#[map] // 放在map段中
+#[map]
 static EVENTS: RingBuf = RingBuf::with_byte_size(RINGBUF_SIZE, 0);
 
 #[uprobe]
@@ -45,11 +45,11 @@ fn try_edbgserver(ctx: &ProbeContext) -> Result<i64, i64> {
     } else {
         error!(ctx, "failed to reserve ringbuf space");
     }
-    info!(ctx, "send data to probe array");
+    debug!(ctx, "send data to probe array");
     unsafe {
         bpf_send_signal(SIGSTOP);
     }
-    info!(ctx, "sent SIGSTOP to current process");
+    debug!(ctx, "sent SIGSTOP to current process");
     Ok(0)
 }
 

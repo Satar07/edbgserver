@@ -30,6 +30,10 @@ log = { version = "0.4.22", default-features = false }
 tokio = { version = "1.40.0", features = ["full"] }
 which = { version = "6.0.0", default-features = false }
 
+[profile.dev]
+debug = true
+opt-level = 0
+
 [profile.release.package.edbgserver-ebpf]
 debug = 2
 codegen-units = 1
