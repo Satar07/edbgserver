@@ -1,5 +1,6 @@
-use clap::Parser;
+use std::str::FromStr;
 
+use clap::Parser;
 use gdbstub::stub::{DisconnectReason, GdbStub};
 use log::{debug, error, info, warn};
 use tokio::net::TcpListener;
@@ -13,14 +14,41 @@ mod utils;
 #[derive(Debug, Parser)]
 #[command(version, about, long_about = None)]
 struct Cli {
-    #[clap(short, long, default_value_t = 3333)]
+    #[arg(long, default_value_t = 3333)]
     port: u32,
-    #[clap(long)]
+    #[arg(short, long)]
     pid: Option<u32>,
-    #[clap(short, long)]
+    #[arg(short, long)]
     target: String,
-    #[clap(short, long)]
-    break_point: u64,
+    #[arg(short, long)]
+    break_point: BreakPointArg,
+}
+
+#[derive(Clone, Debug)]
+struct BreakPointArg(u64);
+
+impl FromStr for BreakPointArg {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let parse_num = |input: &str| -> Result<u64, String> {
+            let input = input.trim().to_lowercase();
+            if let Some(stripped) = input.strip_prefix("0x") {
+                u64::from_str_radix(stripped, 16)
+                    .map_err(|_| format!("Invalid hex number: {}", input))
+            } else {
+                input
+                    .parse::<u64>()
+                    .map_err(|_| format!("Invalid number: {}", input))
+            }
+        };
+
+        if let Ok(addr) = parse_num(s) {
+            return Ok(BreakPointArg(addr));
+        }
+
+        Err("Breakpoint cannot be empty".to_string())
+    }
 }
 
 #[tokio::main]
@@ -33,8 +61,8 @@ async fn main() {
     // main target new
     let mut target = EdbgTarget::new(ebpf);
     target
-        .attach_init_probe(opt.target.as_str(), opt.break_point, opt.pid)
-        .expect("Failed to attach init probe");
+        .attach_init_probe(opt.target.as_str(), opt.break_point.0, opt.pid)
+        .expect("Failed to attach init probe, make sure breakpoint and target is valid");
 
     // connect gdb
     let listen_addr = format!("0.0.0.0:{}", opt.port);
@@ -78,7 +106,6 @@ async fn main() {
         tokio::task::spawn_blocking(move || gdb.run_blocking::<EdbgEventLoop>(&mut target))
             .await
             .expect("GDB Stub task panicked");
-    info!("Starting GDB Session...");
     match result {
         Ok(disconnect_reason) => match disconnect_reason {
             DisconnectReason::Disconnect => info!("GDB Disconnected"),
@@ -88,7 +115,6 @@ async fn main() {
             }
             DisconnectReason::Kill => {
                 info!("GDB sent Kill command");
-                // 可以在这里 kill -9 target_pid
             }
         },
         Err(e) => error!("GDBStub Error: {}", e),

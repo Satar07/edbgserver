@@ -21,7 +21,7 @@ tokio = { workspace = true, features = [
     "net",
     "signal",
 ] }
-clap = { workspace = true, features = ["derive"] }
+clap = { workspace = true, features = ["cargo", "color", "default", "derive"] }
 serial_test = "3.2.0"
 gdbstub = "0.7.8"
 gdbstub_arch = "0.3.2"
