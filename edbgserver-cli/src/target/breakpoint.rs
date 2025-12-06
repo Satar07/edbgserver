@@ -41,7 +41,7 @@ impl SwBreakpoint for EdbgTarget {
             location,
             addr
         );
-        let target_pid = self.get_pid().map_err(|_| TargetError::NonFatal)?;
+        let target_pid = self.get_tgid().map_err(|_| TargetError::NonFatal)?;
         let link_id = self
             .program_mut()
             .attach(location, target.canonicalize()?, Some(target_pid), None)
@@ -74,7 +74,7 @@ impl SwBreakpoint for EdbgTarget {
 
 impl EdbgTarget {
     fn resolve_vma_to_probe_location(&self, vma: u64) -> TargetResult<(u64, PathBuf), Self> {
-        let pid = self.get_pid().map_err(|_| TargetError::NonFatal)?;
+        let pid = self.get_tgid().map_err(|_| TargetError::NonFatal)?;
         let process =
             procfs::process::Process::new(pid as i32).expect("Failed to open process info");
         let maps = process.maps().expect("Failed to read process maps");

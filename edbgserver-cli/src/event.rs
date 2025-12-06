@@ -68,9 +68,9 @@ impl BlockingEventLoop for EdbgEventLoop {
     ) -> Result<Option<Self::StopReason>, <Self::Target as Target>::Error> {
         log::debug!(
             "GDB sent interrupt (Ctrl-C), stopping target pid {}",
-            target.get_pid()?
+            target.get_tgid()?
         );
-        send_sigstop(target.get_pid()?);
+        send_sigstop(target.get_tgid()?);
         Ok(Some(SingleThreadStopReason::Signal(Signal::SIGINT)))
     }
 }
