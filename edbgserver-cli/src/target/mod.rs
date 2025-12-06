@@ -74,9 +74,9 @@ impl EdbgTarget {
             .expect("failed to convert ebpf program to uProbe")
     }
 
-    pub fn get_pid(&self) -> Result<u32> {
+    pub fn get_tgid(&self) -> Result<u32> {
         if let Some(ctx) = self.context {
-            Ok(ctx.pid)
+            Ok(ctx.tgid)
         } else {
             error!("No target PID set");
             Err(anyhow!("No target PID set"))
@@ -190,7 +190,7 @@ impl MultiThreadBase for EdbgTarget {
             warn!("No context available to list active threads, skip active check");
             return Ok(());
         }
-        let path = format!("/proc/{}/task", self.context.unwrap().pid);
+        let path = format!("/proc/{}/task", self.context.unwrap().tgid);
         if let Ok(entries) = fs::read_dir(path) {
             for entry in entries.flatten() {
                 if let Ok(fname) = entry.file_name().into_string()
@@ -213,7 +213,7 @@ impl MultiThreadBase for EdbgTarget {
 impl MultiThreadResume for EdbgTarget {
     fn resume(&mut self) -> Result<(), Self::Error> {
         info!("resume multithread process");
-        let target_pid = self.get_pid()?;
+        let target_pid = self.get_tgid()?;
         debug!("Resuming process {}", target_pid);
         send_sigcont(target_pid);
         Ok(())
