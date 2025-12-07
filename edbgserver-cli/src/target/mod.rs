@@ -9,27 +9,29 @@ use aya::{
 };
 use edbgserver_common::DataT;
 use gdbstub::{
-    common::{Signal, Tid},
+    common::Tid,
     target::{
         Target, TargetError, TargetResult,
         ext::{
             base::{
                 BaseOps,
-                multithread::{MultiThreadBase, MultiThreadResume, MultiThreadResumeOps},
+                multithread::{MultiThreadBase, MultiThreadResumeOps},
             },
             breakpoints::BreakpointsOps,
         },
     },
 };
 use gdbstub_arch::aarch64::{AArch64, reg::AArch64CoreRegs};
-use log::{debug, error, info, warn};
+use log::{debug, error, warn};
 use std::os::fd::AsFd;
 use tokio::io::{Interest, unix::AsyncFd};
 
-use crate::utils::send_sigcont;
+use crate::target::multithread::ThreadAction;
 
 mod breakpoint;
 mod memory_map;
+mod multithread;
+mod step;
 
 pub struct EdbgTarget {
     ebpf: Ebpf,
@@ -37,6 +39,8 @@ pub struct EdbgTarget {
     pub ring_buf: RingBuf<MapData>,
     pub notifier: AsyncFd<OwnedFd>,
     active_breakpoints: HashMap<u64, UProbeLinkId>,
+    temp_step_breakpoints: Option<(u64, UProbeLinkId)>,
+    resume_actions: Vec<(Tid, ThreadAction)>,
 }
 
 impl EdbgTarget {
@@ -63,6 +67,8 @@ impl EdbgTarget {
             ring_buf: ringbuf,
             notifier,
             active_breakpoints: HashMap::new(),
+            temp_step_breakpoints: None,
+            resume_actions: Vec::new(),
         }
     }
 
@@ -74,9 +80,9 @@ impl EdbgTarget {
             .expect("failed to convert ebpf program to uProbe")
     }
 
-    pub fn get_tgid(&self) -> Result<u32> {
+    pub fn get_pid(&self) -> Result<u32> {
         if let Some(ctx) = self.context {
-            Ok(ctx.tgid)
+            Ok(ctx.pid)
         } else {
             error!("No target PID set");
             Err(anyhow!("No target PID set"))
@@ -113,15 +119,14 @@ impl MultiThreadBase for EdbgTarget {
         tid: gdbstub::common::Tid,
     ) -> TargetResult<(), Self> {
         if let Some(ctx) = &self.context {
-            if ctx.pid == tid.get() as u32 {
-                // POSIX:tid -> Kernel:LWP ID(pid)
+            if ctx.tid == tid.get() as u32 {
                 regs.x = ctx.regs;
                 regs.pc = ctx.pc;
                 regs.sp = ctx.sp;
                 regs.cpsr = ctx.pstate as u32;
                 return Ok(());
             } else {
-                debug!("Req regs for TID {} but context is for {}", tid, ctx.pid);
+                debug!("Req regs for TID {} but context is for {}", tid, ctx.tid);
             }
         }
         warn!(
@@ -190,7 +195,7 @@ impl MultiThreadBase for EdbgTarget {
             warn!("No context available to list active threads, skip active check");
             return Ok(());
         }
-        let path = format!("/proc/{}/task", self.context.unwrap().tgid);
+        let path = format!("/proc/{}/task", self.context.unwrap().pid);
         if let Ok(entries) = fs::read_dir(path) {
             for entry in entries.flatten() {
                 if let Ok(fname) = entry.file_name().into_string()
@@ -207,29 +212,5 @@ impl MultiThreadBase for EdbgTarget {
     #[inline(always)]
     fn support_resume(&mut self) -> Option<MultiThreadResumeOps<'_, Self>> {
         Some(self)
-    }
-}
-
-impl MultiThreadResume for EdbgTarget {
-    fn resume(&mut self) -> Result<(), Self::Error> {
-        info!("resume multithread process");
-        let target_pid = self.get_tgid()?;
-        debug!("Resuming process {}", target_pid);
-        send_sigcont(target_pid);
-        Ok(())
-    }
-
-    fn clear_resume_actions(&mut self) -> Result<(), Self::Error> {
-        info!("clear resume actions");
-        Ok(())
-    }
-
-    fn set_resume_action_continue(
-        &mut self,
-        tid: Tid,
-        _signal: Option<Signal>,
-    ) -> Result<(), Self::Error> {
-        info!("set resume action continue for TID {:?}", tid);
-        Ok(())
     }
 }
