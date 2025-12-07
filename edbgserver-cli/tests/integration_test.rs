@@ -139,12 +139,12 @@ async fn test_breakpoint_ret_info() {
         let data = unsafe { &*data_ptr }; // unsafe: dereference raw pointer to struct
 
         println!("Received event from RingBuf:");
-        println!("  PID: {}", data.pid);
+        println!("  PID: {}", data.tid);
         println!("  PC:  0x{:x}", data.pc);
         println!("  SP:  0x{:x}", data.sp);
 
         // 验证 PID 是否匹配
-        assert_eq!(data.pid, target_pid, "RingBuf PID matches target PID");
+        assert_eq!(data.tid, target_pid, "RingBuf PID matches target PID");
 
         // 验证 PC (程序计数器) 不应该为 0
         assert!(data.pc > 0, "PC should be non-zero");

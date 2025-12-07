@@ -4,7 +4,7 @@
 
 set args -t ./edbgserver-cli/tests/test_target/test_target -b 2136
 
-break main.rs:28
+break calculation_next_pc
 
 # break src/bpf_loader.rs:45
 # break src/server.rs:120 if id == 213

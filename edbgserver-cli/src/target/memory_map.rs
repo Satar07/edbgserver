@@ -11,7 +11,7 @@ impl MemoryMap for super::EdbgTarget {
         length: usize,
         buf: &mut [u8],
     ) -> TargetResult<usize, Self> {
-        let pid = self.get_tgid().map_err(|e| {
+        let pid = self.get_pid().map_err(|e| {
             error!("Failed to get PID for memory map: {}", e);
             TargetError::NonFatal
         })?;
@@ -41,7 +41,8 @@ impl MemoryMap for super::EdbgTarget {
                 let type_str = if map.perms.contains(MMPermissions::WRITE) {
                     "ram"
                 } else {
-                    "rom"
+                    // "rom"
+                    "ram" // make gdb use soft breakpoints at text segments
                 };
 
                 xml.push_str(&format!(

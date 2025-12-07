@@ -7,7 +7,7 @@ use gdbstub::{
     },
     target::Target,
 };
-use log::info;
+use log::{debug, info};
 
 use crate::{connection::TokioConnection, target::EdbgTarget, utils::send_sigstop};
 use tokio::{io::AsyncReadExt, runtime::Handle};
@@ -47,11 +47,12 @@ impl BlockingEventLoop for EdbgEventLoop {
                         while let Some(item) = target.ring_buf.next() {
                             let ptr = item.as_ptr() as *const DataT;
                             let data = unsafe { std::ptr::read_unaligned(ptr) };
-                            info!("Hit UProbe! PID: {}, PC: {:#x}", data.pid, data.pc);
+                            info!("Hit UProbe! PID: {}, PC: {:#x}", data.tid, data.pc);
                             target.context = Some(data);
                             event_received = true;
                         }
                         guard.clear_ready();
+                        target.handle_trap();
                         if event_received {
                             return Ok(Event::TargetStopped(
                                 SingleThreadStopReason::Signal(Signal::SIGTRAP)
@@ -66,11 +67,11 @@ impl BlockingEventLoop for EdbgEventLoop {
     fn on_interrupt(
         target: &mut Self::Target,
     ) -> Result<Option<Self::StopReason>, <Self::Target as Target>::Error> {
-        log::debug!(
+        debug!(
             "GDB sent interrupt (Ctrl-C), stopping target pid {}",
-            target.get_tgid()?
+            target.get_pid()?
         );
-        send_sigstop(target.get_tgid()?);
+        send_sigstop(target.get_pid()?);
         Ok(Some(SingleThreadStopReason::Signal(Signal::SIGINT)))
     }
 }

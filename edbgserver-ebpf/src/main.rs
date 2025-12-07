@@ -31,8 +31,8 @@ fn try_edbgserver(ctx: &ProbeContext) -> Result<i64, i64> {
     if let Some(mut entry) = EVENTS.reserve::<DataT>(0) {
         let data_ptr = entry.as_mut_ptr();
         unsafe {
-            (*data_ptr).pid = bpf_get_current_pid_tgid() as u32;
-            (*data_ptr).tgid = (bpf_get_current_pid_tgid() >> 32) as u32;
+            (*data_ptr).tid = bpf_get_current_pid_tgid() as u32;
+            (*data_ptr).pid = (bpf_get_current_pid_tgid() >> 32) as u32;
             for i in 0..31 {
                 (*data_ptr).regs[i] = (*ctx.regs).regs[i];
             }

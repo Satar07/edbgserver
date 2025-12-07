@@ -1,12 +1,13 @@
 use std::{path::PathBuf, str::FromStr};
 
 use anyhow::Result;
+use aya::programs::uprobe::UProbeLinkId;
 use edbgserver_common::DataT;
 use gdbstub::target::{
     TargetError, TargetResult,
     ext::breakpoints::{Breakpoints, SwBreakpoint, SwBreakpointOps},
 };
-use log::{error, info};
+use log::{debug, error, info};
 use procfs::process::MMapPath;
 
 use crate::target::EdbgTarget;
@@ -27,31 +28,16 @@ impl SwBreakpoint for EdbgTarget {
         if self.active_breakpoints.contains_key(&addr) {
             return Ok(false);
         }
-        let (location, target) = self.resolve_vma_to_probe_location(addr).map_err(|_| {
-            error!(
-                "Failed to resolve VMA to probe location for addr {:#x}",
-                addr
-            );
-            TargetError::NonFatal
-        })?;
-
-        log::info!(
-            "Attaching UProbe to {:?} at offset {:#x} (VMA: {:#x})",
-            target,
-            location,
-            addr
-        );
-        let target_pid = self.get_tgid().map_err(|_| TargetError::NonFatal)?;
-        let link_id = self
-            .program_mut()
-            .attach(location, target.canonicalize()?, Some(target_pid), None)
+        self.internel_attach_uprobe(addr)
             .map_err(|e| {
-                error!("aya attach failed: {}", e);
+                error!("Failed to attach UProbe at VMA {:#x}: {}", addr, e);
                 TargetError::NonFatal
-            })?;
-
-        self.active_breakpoints.insert(addr, link_id);
-        Ok(true)
+            })
+            .map(|link_id| {
+                info!("Attached UProbe at VMA: {:#x}", addr);
+                self.active_breakpoints.insert(addr, link_id);
+                true
+            })
     }
 
     fn remove_sw_breakpoint(
@@ -74,7 +60,7 @@ impl SwBreakpoint for EdbgTarget {
 
 impl EdbgTarget {
     fn resolve_vma_to_probe_location(&self, vma: u64) -> TargetResult<(u64, PathBuf), Self> {
-        let pid = self.get_tgid().map_err(|_| TargetError::NonFatal)?;
+        let pid = self.get_pid().map_err(|_| TargetError::NonFatal)?;
         let process =
             procfs::process::Process::new(pid as i32).expect("Failed to open process info");
         let maps = process.maps().expect("Failed to read process maps");
@@ -93,6 +79,25 @@ impl EdbgTarget {
         }
         error!("Failed to find mapping for VMA {:#x}", vma);
         Err(TargetError::NonFatal)
+    }
+
+    pub fn internel_attach_uprobe(&mut self, addr: u64) -> Result<UProbeLinkId> {
+        let (location, target) = self.resolve_vma_to_probe_location(addr).map_err(|_| {
+            anyhow::anyhow!(
+                "Failed to resolve VMA to probe location for addr {:#x}",
+                addr
+            )
+        })?;
+        let target_pid = self.get_pid()?;
+        debug!(
+            "Attaching Temp/Internal UProbe to {:?} at offset {:#x} (VMA: {:#x})",
+            target, location, addr
+        );
+        let link_id = self
+            .program_mut()
+            .attach(location, target.canonicalize()?, Some(target_pid), None)
+            .map_err(|e| anyhow::anyhow!("aya attach failed: {}", e))?;
+        Ok(link_id)
     }
 
     pub fn attach_init_probe(
@@ -126,12 +131,40 @@ impl EdbgTarget {
             if let Some(item) = self.ring_buf.next() {
                 let ptr = item.as_ptr() as *const DataT;
                 let data = unsafe { std::ptr::read_unaligned(ptr) };
-                info!("Initial UProbe Hit! PID: {}, PC: {:#x}", data.pid, data.pc);
+                info!("Initial UProbe Hit! PID: {}, PC: {:#x}", data.tid, data.pc);
                 self.context = Some(data);
                 guard.clear_ready();
                 return Ok(());
             }
             guard.clear_ready();
+        }
+    }
+
+    pub fn handle_trap(&mut self) {
+        if let Some(context) = &self.context {
+            debug!(
+                "Handling trap for PID: {}, PC: {:#x}",
+                context.tid, context.pc
+            );
+            if let Some((addr, link_id)) = self.temp_step_breakpoints.take() {
+                if addr == context.pc {
+                    debug!(
+                        "Temp breakpoint hit at {:#x} for PID: {}. Detaching UProbe.",
+                        addr, context.tid
+                    );
+                    if let Err(e) = self.program_mut().detach(link_id) {
+                        error!("Failed to detach UProbe at {:#x}: {}", addr, e);
+                    }
+                } else {
+                    debug!(
+                        "Trap at {:#x} does not match temp breakpoint at {:#x}. Cleaning up temp BP anyway.",
+                        context.pc, addr
+                    );
+                    let _ = self.program_mut().detach(link_id);
+                }
+            }
+        } else {
+            error!("No context available to handle trap.");
         }
     }
 }
