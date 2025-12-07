@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::num::NonZero;
 use std::{fs, os::fd::OwnedFd};
 
 use anyhow::{Result, anyhow};
@@ -23,6 +24,7 @@ use gdbstub::{
 };
 use gdbstub_arch::aarch64::{AArch64, reg::AArch64CoreRegs};
 use log::{debug, error, warn};
+use procfs::process::Process;
 use std::os::fd::AsFd;
 use tokio::io::{Interest, unix::AsyncFd};
 
@@ -41,6 +43,7 @@ pub struct EdbgTarget {
     active_breakpoints: HashMap<u64, UProbeLinkId>,
     temp_step_breakpoints: Option<(u64, UProbeLinkId)>,
     resume_actions: Vec<(Tid, ThreadAction)>,
+    cached_threads: Option<Vec<NonZero<usize>>>,
 }
 
 impl EdbgTarget {
@@ -69,6 +72,7 @@ impl EdbgTarget {
             active_breakpoints: HashMap::new(),
             temp_step_breakpoints: None,
             resume_actions: Vec::new(),
+            cached_threads: None,
         }
     }
 
@@ -191,20 +195,25 @@ impl MultiThreadBase for EdbgTarget {
         thread_is_active: &mut dyn FnMut(gdbstub::common::Tid),
     ) -> Result<(), Self::Error> {
         debug!("listing active threads");
+        if let Some(cached) = self.cached_threads.as_ref() {
+            for tid in cached {
+                thread_is_active(*tid);
+            }
+        }
         if self.context.is_none() {
             warn!("No context available to list active threads, skip active check");
             return Ok(());
         }
-        let path = format!("/proc/{}/task", self.context.unwrap().pid);
-        if let Ok(entries) = fs::read_dir(path) {
-            for entry in entries.flatten() {
-                if let Ok(fname) = entry.file_name().into_string()
-                    && let Ok(tid_val) = fname.parse::<u32>()
-                    && let Some(tid) = Tid::new(tid_val as usize)
-                {
-                    thread_is_active(tid);
-                }
-            }
+        let process = Process::new(self.get_pid().unwrap() as i32).expect("Failed to open process");
+
+        let threads: Vec<_> = process
+            .tasks()?
+            .flatten()
+            .map(|t| NonZero::new(t.tid as usize).unwrap())
+            .collect();
+
+        for tid in threads {
+            thread_is_active(tid);
         }
         Ok(())
     }
