@@ -76,7 +76,7 @@ impl EdbgTarget {
                 bail!("Failed to get targeto for B or BL");
             }
             // br x8 | blr x8 | ret
-            Arm64Insn::ARM64_INS_BR | Arm64Insn::ARM64_INS_BLR | Arm64Insn::ARM64_INS_RET => {
+            Arm64Insn::ARM64_INS_BR | Arm64Insn::ARM64_INS_BLR => {
                 let op = arm64_detail.operands().next().unwrap();
                 let reg_id = match op.op_type {
                     Arm64OperandType::Reg(reg_id) => reg_id,
@@ -84,6 +84,10 @@ impl EdbgTarget {
                 };
                 let res = get_reg_from_context(reg_id, context)?;
                 Ok(res)
+            }
+            Arm64Insn::ARM64_INS_RET => {
+                let link_reg = context.regs[30]; // LR is X30
+                Ok(link_reg)
             }
             // cbz x0, label | cbnz x0, label
             Arm64Insn::ARM64_INS_CBZ | Arm64Insn::ARM64_INS_CBNZ => {
@@ -232,6 +236,37 @@ fn get_reg_from_context(reg_id: RegId, context: &DataT) -> Result<u64> {
         Arm64Reg::ARM64_REG_X28 => context.regs[28],
         Arm64Reg::ARM64_REG_X29 => context.regs[29], // FP
         Arm64Reg::ARM64_REG_X30 => context.regs[30], // LR
+        Arm64Reg::ARM64_REG_W0 => context.regs[0] as u32 as u64,
+        Arm64Reg::ARM64_REG_W1 => context.regs[1] as u32 as u64,
+        Arm64Reg::ARM64_REG_W2 => context.regs[2] as u32 as u64,
+        Arm64Reg::ARM64_REG_W3 => context.regs[3] as u32 as u64,
+        Arm64Reg::ARM64_REG_W4 => context.regs[4] as u32 as u64,
+        Arm64Reg::ARM64_REG_W5 => context.regs[5] as u32 as u64,
+        Arm64Reg::ARM64_REG_W6 => context.regs[6] as u32 as u64,
+        Arm64Reg::ARM64_REG_W7 => context.regs[7] as u32 as u64,
+        Arm64Reg::ARM64_REG_W8 => context.regs[8] as u32 as u64,
+        Arm64Reg::ARM64_REG_W9 => context.regs[9] as u32 as u64,
+        Arm64Reg::ARM64_REG_W10 => context.regs[10] as u32 as u64,
+        Arm64Reg::ARM64_REG_W11 => context.regs[11] as u32 as u64,
+        Arm64Reg::ARM64_REG_W12 => context.regs[12] as u32 as u64,
+        Arm64Reg::ARM64_REG_W13 => context.regs[13] as u32 as u64,
+        Arm64Reg::ARM64_REG_W14 => context.regs[14] as u32 as u64,
+        Arm64Reg::ARM64_REG_W15 => context.regs[15] as u32 as u64,
+        Arm64Reg::ARM64_REG_W16 => context.regs[16] as u32 as u64,
+        Arm64Reg::ARM64_REG_W17 => context.regs[17] as u32 as u64,
+        Arm64Reg::ARM64_REG_W18 => context.regs[18] as u32 as u64,
+        Arm64Reg::ARM64_REG_W19 => context.regs[19] as u32 as u64,
+        Arm64Reg::ARM64_REG_W20 => context.regs[20] as u32 as u64,
+        Arm64Reg::ARM64_REG_W21 => context.regs[21] as u32 as u64,
+        Arm64Reg::ARM64_REG_W22 => context.regs[22] as u32 as u64,
+        Arm64Reg::ARM64_REG_W23 => context.regs[23] as u32 as u64,
+        Arm64Reg::ARM64_REG_W24 => context.regs[24] as u32 as u64,
+        Arm64Reg::ARM64_REG_W25 => context.regs[25] as u32 as u64,
+        Arm64Reg::ARM64_REG_W26 => context.regs[26] as u32 as u64,
+        Arm64Reg::ARM64_REG_W27 => context.regs[27] as u32 as u64,
+        Arm64Reg::ARM64_REG_W28 => context.regs[28] as u32 as u64,
+        Arm64Reg::ARM64_REG_W29 => context.regs[29] as u32 as u64,
+        Arm64Reg::ARM64_REG_W30 => context.regs[30] as u32 as u64,
         _ => bail!("Unsupported register id: {}", reg_id),
     };
     Ok(res)

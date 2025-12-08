@@ -1,5 +1,6 @@
 use std::str::FromStr;
 
+use anyhow::{Context, Result, bail};
 use clap::Parser;
 use gdbstub::stub::{DisconnectReason, GdbStub};
 use log::{debug, error, info, warn};
@@ -52,7 +53,7 @@ impl FromStr for BreakPointArg {
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<()> {
     env_logger::init();
     let opt = Cli::parse();
     debug!("start edbgserver at pid: {}", std::process::id());
@@ -62,41 +63,35 @@ async fn main() {
     let mut target = EdbgTarget::new(ebpf);
     target
         .attach_init_probe(opt.target.as_str(), opt.break_point.0, opt.pid)
-        .expect("Failed to attach init probe, make sure breakpoint and target is valid");
+        .context("Failed to attach init probe, make sure breakpoint and target is valid")?;
 
-    // connect gdb
+    println!(
+        "Step 1: Waiting for Target Initial Trap at {}...",
+        opt.target
+    );
+
+    match target.wait_for_init_trap().await {
+        Ok(_) => info!("Target context captured successfully via eBPF"),
+        Err(e) => bail!("Failed to catch initial trap: {}", e),
+    }
+
     let listen_addr = format!("0.0.0.0:{}", opt.port);
     let listener = TcpListener::bind(&listen_addr)
         .await
-        .expect("Failed to bind TCP listener");
+        .context("Failed to bind TCP listener")?;
 
-    // wait for gdb connect and target initial trap
     println!(
-        "Waiting for GDB connect on {} AND Target Initial Trap...",
+        "Step 2: Target Ready. Waiting for GDB connect on {}...",
         listen_addr
     );
-    let tcp_task = async {
-        info!("Waiting for GDB connection on {}...", listen_addr);
-        let res = listener.accept().await;
-        match &res {
-            Ok((_, addr)) => info!("GDB connected from {}", addr),
-            Err(e) => error!("Failed to accept GDB connection: {}", e),
+
+    let stream = match listener.accept().await {
+        Ok((s, a)) => {
+            info!("GDB connected from {}", a);
+            s
         }
-        res
+        Err(e) => bail!("Failed to accept GDB connection: {}", e),
     };
-    let trap_task = async {
-        info!("Waiting for Target to hit the initial breakpoint...");
-        let res = target.wait_for_init_trap().await;
-        match &res {
-            Ok(_) => info!("Target context captured successfully via eBPF"),
-            Err(e) => error!("Failed to catch initial trap: {}", e),
-        }
-        res
-    };
-    let (tcp_res, trap_res) = tokio::join!(tcp_task, trap_task);
-    let (stream, addr) = tcp_res.expect("Failed to accept connection");
-    info!("GDB connected from {}", addr);
-    trap_res.expect("Failed to catch initial trap");
 
     let connection = TokioConnection::new(stream);
     let gdb = GdbStub::new(connection);
@@ -119,6 +114,7 @@ async fn main() {
         },
         Err(e) => error!("GDBStub Error: {}", e),
     }
+    Ok(())
 }
 
 fn init_aya() -> aya::Ebpf {

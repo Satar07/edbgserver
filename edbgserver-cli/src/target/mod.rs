@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::num::NonZero;
-use std::{fs, os::fd::OwnedFd};
+use std::os::fd::OwnedFd;
 
 use anyhow::{Result, anyhow};
 use aya::{

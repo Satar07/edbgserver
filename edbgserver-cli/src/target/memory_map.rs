@@ -46,7 +46,7 @@ impl MemoryMap for super::EdbgTarget {
                 };
 
                 xml.push_str(&format!(
-                    r#"<memory type="{}" start="{:#x}" length="{:#x}"/>"#,
+                    r#"<memory type="{}" start="{:x}" length="{:x}"/>"#,
                     type_str, start, len
                 ));
             }
