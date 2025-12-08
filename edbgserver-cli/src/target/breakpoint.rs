@@ -141,7 +141,6 @@ impl EdbgTarget {
     }
 
     pub fn handle_trap(&mut self) {
-        self.cached_threads.take();
         if let Some(context) = &self.context {
             debug!(
                 "Handling trap for PID: {}, PC: {:#x}",
