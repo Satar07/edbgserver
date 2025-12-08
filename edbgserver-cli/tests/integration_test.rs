@@ -133,7 +133,6 @@ async fn test_breakpoint_ret_info() {
     let mut events =
         RingBuf::try_from(events_map).expect("Failed to create RingBuf from EVENTS map");
 
-    // 从 EVENTS 里面拿数据
     if let Some(event) = events.next() {
         let data_ptr = event.as_ptr() as *const DataT;
         let data = unsafe { &*data_ptr }; // unsafe: dereference raw pointer to struct
@@ -143,16 +142,12 @@ async fn test_breakpoint_ret_info() {
         println!("  PC:  0x{:x}", data.pc);
         println!("  SP:  0x{:x}", data.sp);
 
-        // 验证 PID 是否匹配
         assert_eq!(data.tid, target_pid, "RingBuf PID matches target PID");
 
-        // 验证 PC (程序计数器) 不应该为 0
         assert!(data.pc > 0, "PC should be non-zero");
 
-        // 验证 SP (栈指针) 不应该为 0
         assert!(data.sp > 0, "SP should be non-zero");
 
-        // 验证寄存器数组不全是 0 (至少有一些通用寄存器会被使用)
         let regs_sum: u64 = data.regs.iter().sum();
         assert!(regs_sum > 0, "Registers shouldn't be all empty");
     }
