@@ -1,9 +1,15 @@
-use std::str::FromStr;
-
 use anyhow::{Context, Result, bail};
-use clap::Parser;
+use clap::{
+    Parser,
+    builder::{
+        Styles,
+        styling::{AnsiColor, Effects},
+    },
+};
+use clap_num::maybe_hex;
 use gdbstub::stub::{DisconnectReason, GdbStub};
 use log::{debug, error, info, warn};
+use nix::sys::resource::{self, Resource, setrlimit};
 use tokio::net::TcpListener;
 
 use crate::{connection::TokioConnection, event::EdbgEventLoop, target::EdbgTarget};
@@ -12,44 +18,55 @@ mod event;
 mod target;
 mod utils;
 
-#[derive(Debug, Parser)]
-#[command(version, about, long_about = None)]
-struct Cli {
-    #[arg(long, default_value_t = 3333)]
-    port: u32,
-    #[arg(short, long)]
-    pid: Option<u32>,
-    #[arg(short, long)]
-    target: String,
-    #[arg(short, long)]
-    break_point: BreakPointArg,
+fn get_styles() -> Styles {
+    Styles::styled()
+        .header(AnsiColor::Green.on_default() | Effects::BOLD | Effects::UNDERLINE)
+        .usage(AnsiColor::Green.on_default() | Effects::BOLD)
+        .literal(AnsiColor::Cyan.on_default() | Effects::BOLD)
+        .placeholder(AnsiColor::Cyan.on_default())
 }
 
-#[derive(Clone, Debug)]
-struct BreakPointArg(u64);
+#[derive(Debug, Parser)]
+#[command(
+    version,
+    about = "An eBPF-based GDB Stub Server",
+    styles = get_styles(),
+    long_about = r#"An eBPF-based GDB Stub Server designed for analyzing running processes.
 
-impl FromStr for BreakPointArg {
-    type Err = String;
+Operational Workflow:
+  Step 1: Wait for Target Initial Trap
+          The server installs a UProbe and waits for the target to hit the specified breakpoint.
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let parse_num = |input: &str| -> Result<u64, String> {
-            let input = input.trim().to_lowercase();
-            if let Some(stripped) = input.strip_prefix("0x") {
-                u64::from_str_radix(stripped, 16)
-                    .map_err(|_| format!("Invalid hex number: {}", input))
-            } else {
-                input
-                    .parse::<u64>()
-                    .map_err(|_| format!("Invalid number: {}", input))
-            }
-        };
+  Step 2: Target Ready & GDB Connect
+          Once the trap is caught, the server opens the TCP port and waits for a GDB client to connect.
 
-        if let Ok(addr) = parse_num(s) {
-            return Ok(BreakPointArg(addr));
-        }
+Logging & Debugging:
+  This tool uses `env_logger`. You can control log verbosity via the RUST_LOG environment variable.
+  Available levels: error, warn, info, debug, trace.
 
-        Err("Breakpoint cannot be empty".to_string())
-    }
+  Example:
+    RUST_LOG=debug ./edbgserver-cli -t ./target -b 0x401000
+"#
+)]
+struct Cli {
+    /// The TCP port where the GDB server will listen for incoming connections.
+    #[arg(long, default_value_t = 3333)]
+    port: u32,
+
+    /// The Process ID (PID) of the target process to attach to.
+    /// If omitted, the server will automatically attach to the first process that triggers the breakpoint in the specified binary.
+    #[arg(short, long)]
+    pid: Option<u32>,
+
+    /// Path to the target binary or executable file.
+    #[arg(short, long)]
+    target: String,
+
+    /// The initial breakpoint address (file offset).
+    /// The server will set a UProbe at this location to intercept execution and wait for GDB.
+    /// Supports hexadecimal (e.g., 0x400000) or decimal input.
+    #[arg(short, long, value_parser = maybe_hex::<u64>)]
+    break_point: u64,
 }
 
 #[tokio::main]
@@ -62,7 +79,7 @@ async fn main() -> Result<()> {
     // main target new
     let mut target = EdbgTarget::new(ebpf);
     target
-        .attach_init_probe(opt.target.as_str(), opt.break_point.0, opt.pid)
+        .attach_init_probe(opt.target.as_str(), opt.break_point, opt.pid)
         .context("Failed to attach init probe, make sure breakpoint and target is valid")?;
 
     println!(
@@ -119,13 +136,12 @@ async fn main() -> Result<()> {
 
 fn init_aya() -> aya::Ebpf {
     env_logger::try_init().ok();
-    let rlim = libc::rlimit {
-        rlim_cur: libc::RLIM_INFINITY,
-        rlim_max: libc::RLIM_INFINITY,
-    };
-    let ret = unsafe { libc::setrlimit(libc::RLIMIT_MEMLOCK, &rlim) };
-    if ret != 0 {
-        debug!("remove limit on locked memory failed, ret is: {}", ret);
+    if let Err(e) = setrlimit(
+        Resource::RLIMIT_MEMLOCK,
+        resource::RLIM_INFINITY,
+        resource::RLIM_INFINITY,
+    ) {
+        debug!("remove limit on locked memory failed: {}", e);
     }
     let mut ebpf = aya::Ebpf::load(aya::include_bytes_aligned!(concat!(
         env!("OUT_DIR"),

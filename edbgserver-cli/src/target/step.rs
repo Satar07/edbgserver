@@ -1,5 +1,3 @@
-use std::mem;
-
 use crate::target::EdbgTarget;
 use anyhow::{Result, anyhow, bail};
 use capstone::{
@@ -10,30 +8,32 @@ use edbgserver_common::DataT;
 use log::{debug, error, info};
 
 impl EdbgTarget {
-    fn read_instruction(&self, pc: u64, tgid: u32) -> Result<u32> {
-        let mut buf = [0u8; 4];
-        use process_memory::{CopyAddress, TryIntoProcessHandle};
-        let handle = (tgid as i32).try_into_process_handle()?;
-        handle.copy_address(pc as usize, &mut buf)?;
-        Ok(u32::from_le_bytes(buf))
-    }
-
-    fn calculation_next_pc(&self, current_pc: u64, tgid: u32) -> Result<u64> {
-        debug!("Calculating next PC from current PC: {:#x}", current_pc);
-        let code = self.read_instruction(current_pc, tgid)?;
-        let code_byte = code.to_le_bytes();
-        let cs = Capstone::new()
+    fn create_capstone() -> Result<Capstone> {
+        Capstone::new()
             .arm64()
             .mode(arch::arm64::ArchMode::Arm)
             .detail(true)
             .build()
-            .expect("Failed to create Capstone object");
+            .map_err(|e| anyhow!("Failed to create Capstone instance: {}", e))
+    }
+
+    fn read_instruction(&self, pc: u64, tid: u32) -> Result<u32> {
+        let mut buf = [0u8; 4];
+        use process_memory::{CopyAddress, TryIntoProcessHandle};
+        let handle = (tid as i32).try_into_process_handle()?;
+        handle.copy_address(pc as usize, &mut buf)?;
+        Ok(u32::from_le_bytes(buf))
+    }
+
+    fn calculation_next_pc(&self, current_pc: u64, tid: u32) -> Result<u64> {
+        debug!("Calculating next PC from current PC: {:#x}", current_pc);
+        let code = self.read_instruction(current_pc, tid)?;
+        let code_byte = code.to_le_bytes();
+        let cs = EdbgTarget::create_capstone()?;
         let insn = cs.disasm_count(&code_byte, current_pc, 1)?;
         debug!("Disassembled instruction: {:?}", insn);
         if insn.is_empty() {
-            // cannot analyze instruction, just return pc + 4
-            error!("Failed to disassemble instruction at {:#x}", current_pc);
-            return Ok(current_pc + 4);
+            bail!("Failed to disassemble instruction at {:#x}", current_pc);
         }
         let insn = insn.first().ok_or(anyhow!("Failed to get instruction"))?;
         let detail = cs.insn_detail(insn)?;
@@ -53,7 +53,7 @@ impl EdbgTarget {
         }
 
         let inst_id = insn.id().0;
-        let insn_enum: Arm64Insn = unsafe { mem::transmute(inst_id) }; // SAFETY: inst_id is guaranteed to be valid and #[repr(u32)] guarantees the same layout
+        let insn_enum = Arm64Insn::from(inst_id);
         let arch_detail = detail.arch_detail();
         let arm64_detail = arch_detail.arm64().unwrap();
         let context = self
@@ -73,7 +73,7 @@ impl EdbgTarget {
                 {
                     return Ok(target as u64);
                 }
-                bail!("Failed to get targeto for B or BL");
+                bail!("Failed to get target for B or BL");
             }
             // br x8 | blr x8 | ret
             Arm64Insn::ARM64_INS_BR | Arm64Insn::ARM64_INS_BLR => {
@@ -159,17 +159,37 @@ impl EdbgTarget {
         }
     }
 
-    pub fn single_step_thread(&mut self, tid: u32) -> Result<()> {
-        let curr_pc = self.context.unwrap().pc;
+    pub fn single_step_thread(&mut self, tid: u32, curr_pc: u64) -> Result<()> {
         let next_pc = self
             .calculation_next_pc(curr_pc, tid)
             .map_err(|e| anyhow!("Failed to calculate next PC for single step: {}", e))?;
         debug!("Next PC calculated: {:#x}", next_pc);
-        if !self.active_breakpoints.contains_key(&next_pc) {
-            self.internel_attach_uprobe(next_pc).map(|link_id| {
+        if self.active_breakpoints.contains_key(&next_pc) {
+            return Ok(());
+        }
+        match self.internel_attach_uprobe(next_pc) {
+            Ok(link_id) => {
                 info!("Attached UProbe at VMA: {:#x}", next_pc);
                 self.temp_step_breakpoints = Some((next_pc, link_id));
-            })?;
+            }
+            Err(e) => {
+                let (is_svc, insn_len) = {
+                    let cs = EdbgTarget::create_capstone()?;
+                    let code = self.read_instruction(next_pc, tid)?.to_le_bytes(); // read_instruction 可能只需要 &self，如果需要 &mut 则需进一步拆分
+                    let insns = cs.disasm_count(&code, next_pc, 1)?;
+                    let insn = insns.first().ok_or(anyhow!("failed to get first insn"))?;
+
+                    let is_svc = Arm64Insn::from(insn.id().0 as u32) == Arm64Insn::ARM64_INS_SVC;
+                    let len = insn.len() as u64;
+                    (is_svc, len)
+                };
+                if is_svc {
+                    info!("Next instruction is SVC, step over");
+                    self.single_step_thread(tid, curr_pc + insn_len)?;
+                } else {
+                    return Err(e);
+                }
+            }
         }
         Ok(())
     }
@@ -198,7 +218,7 @@ fn check_condition(cc: Arm64CC, pstate: u64) -> bool {
         Arm64CC::ARM64_CC_LE => z || (n != v),  // Signed less or equal
         Arm64CC::ARM64_CC_AL => true,           // Always
         Arm64CC::ARM64_CC_NV => true, // Always (historically "Never", but behaves as AL in A64)
-        _ => true,
+        Arm64CC::ARM64_CC_INVALID => true, // No condition specified, so always
     }
 }
 
