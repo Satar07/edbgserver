@@ -29,6 +29,7 @@ use tokio::io::{Interest, unix::AsyncFd};
 use crate::target::multithread::ThreadAction;
 
 mod breakpoint;
+mod host_io;
 mod memory_map;
 mod multithread;
 mod step;
@@ -43,7 +44,11 @@ pub struct EdbgTarget {
     resume_actions: Vec<(Tid, ThreadAction)>,
     exec_path: Option<PathBuf>,
     bound_pid: Option<u32>,
+    host_io_files: HashMap<u32, std::fs::File>,
+    next_host_io_fd: u32,
 }
+
+pub const HOST_IO_FD_START: u32 = 100;
 
 impl EdbgTarget {
     pub fn new(mut ebpf: Ebpf) -> Self {
@@ -73,6 +78,8 @@ impl EdbgTarget {
             resume_actions: Vec::new(),
             exec_path: None,
             bound_pid: None,
+            host_io_files: HashMap::new(),
+            next_host_io_fd: HOST_IO_FD_START,
         }
     }
 
@@ -115,6 +122,11 @@ impl Target for EdbgTarget {
     fn support_extended_mode(
         &mut self,
     ) -> Option<gdbstub::target::ext::extended_mode::ExtendedModeOps<'_, Self>> {
+        Some(self)
+    }
+
+    #[inline(always)]
+    fn support_host_io(&mut self) -> Option<gdbstub::target::ext::host_io::HostIoOps<'_, Self>> {
         Some(self)
     }
 }
