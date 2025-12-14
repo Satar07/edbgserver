@@ -1,3 +1,2 @@
-- feat: HostIo trait for reading/writing to host memory
-- feat: ExecFile trait for executing files in the target
+- feat: attach support
 - feat: hardware breakpoint

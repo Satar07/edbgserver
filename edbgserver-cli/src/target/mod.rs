@@ -129,6 +129,13 @@ impl Target for EdbgTarget {
     fn support_host_io(&mut self) -> Option<gdbstub::target::ext::host_io::HostIoOps<'_, Self>> {
         Some(self)
     }
+
+    #[inline(always)]
+    fn support_exec_file(
+        &mut self,
+    ) -> Option<gdbstub::target::ext::exec_file::ExecFileOps<'_, Self>> {
+        Some(self)
+    }
 }
 
 impl MultiThreadBase for EdbgTarget {
