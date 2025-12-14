@@ -129,7 +129,7 @@ async fn main() -> Result<()> {
                 info!("GDB sent Kill command");
             }
         },
-        Err(e) => error!("GDBStub Error: {}", e),
+        Err(e) => warn!("GDBStub Error: {}", e),
     }
     Ok(())
 }
@@ -141,7 +141,7 @@ fn init_aya() -> aya::Ebpf {
         resource::RLIM_INFINITY,
         resource::RLIM_INFINITY,
     ) {
-        debug!("remove limit on locked memory failed: {}", e);
+        error!("remove limit on locked memory failed: {}", e);
     }
     let mut ebpf = aya::Ebpf::load(aya::include_bytes_aligned!(concat!(
         env!("OUT_DIR"),
