@@ -1,11 +1,17 @@
-use std::{collections::HashSet, num::NonZero};
+use std::{collections::HashSet, ffi::OsStr, num::NonZero, os::unix::ffi::OsStrExt, process};
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use gdbstub::{
     common::{Signal, Tid},
-    target::ext::base::multithread::{MultiThreadResume, MultiThreadSingleStep},
+    target::{
+        TargetError, TargetResult,
+        ext::{
+            base::multithread::{MultiThreadResume, MultiThreadSingleStep},
+            extended_mode::{CurrentActivePid, ExtendedMode, ShouldTerminate},
+        },
+    },
 };
-use log::{debug, info};
+use log::{debug, error, info};
 use procfs::process::Process;
 
 use crate::{
@@ -89,10 +95,8 @@ impl MultiThreadResume for EdbgTarget {
             .map(|(tid, _)| tid.get() as u32)
             .collect();
 
-        self.cached_threads
-            .take()
+        self.get_active_threads()?
             .iter()
-            .flatten()
             .map(|t| t.get() as u32)
             .filter(|tid| !handled_tids.contains(tid))
             .for_each(|tid| {
@@ -103,23 +107,110 @@ impl MultiThreadResume for EdbgTarget {
     }
 }
 
-impl EdbgTarget {
-    pub fn get_active_threads(&mut self) -> Result<&[NonZero<usize>]> {
-        if self.cached_threads.is_none() {
-            self.refresh_thread_cache()?;
+impl ExtendedMode for EdbgTarget {
+    fn run(
+        &mut self,
+        filename: Option<&[u8]>,
+        args: gdbstub::target::ext::extended_mode::Args<'_, '_>,
+    ) -> TargetResult<gdbstub::common::Pid, Self> {
+        info!("run command");
+        if let Some(filename) = filename {
+            let filename = OsStr::from_bytes(filename);
+            let mut cmd = process::Command::new(filename);
+            for arg in args {
+                cmd.arg(OsStr::from_bytes(arg));
+            }
+            debug!("Spawning process: {:?}", cmd);
+            let handle = cmd.spawn()?;
+            self.bound_pid = Some(handle.id());
+            let pid =
+                gdbstub::common::Pid::new(handle.id() as usize).ok_or(TargetError::NonFatal)?;
+            Ok(pid)
+        } else if let Some(exec_path) = self.exec_path.as_ref() {
+            debug!("Start process {:?}", exec_path);
+            let mut cmd = process::Command::new(exec_path);
+            let handle = cmd.spawn()?;
+            self.bound_pid = Some(handle.id());
+            let pid =
+                gdbstub::common::Pid::new(handle.id() as usize).ok_or(TargetError::NonFatal)?;
+            debug!("Spawned process with PID {:?}", pid);
+            Ok(pid)
+        } else {
+            error!("No filename provided and no existing process to run");
+            Err(TargetError::NonFatal)
         }
-
-        Ok(self.cached_threads.as_ref().unwrap().as_slice())
     }
 
-    fn refresh_thread_cache(&mut self) -> Result<()> {
-        debug!("Refreshing thread cache from /proc");
+    fn attach(&mut self, _pid: gdbstub::common::Pid) -> TargetResult<(), Self> {
+        error!("attach not support!");
+        Err(TargetError::NonFatal)
+    }
 
-        if self.context.is_none() {
-            self.cached_threads = Some(Vec::new());
+    fn query_if_attached(
+        &mut self,
+        _pid: gdbstub::common::Pid,
+    ) -> TargetResult<gdbstub::target::ext::extended_mode::AttachKind, Self> {
+        error!("attach not support!");
+        Err(TargetError::NonFatal)
+    }
+
+    fn kill(&mut self, pid: Option<gdbstub::common::Pid>) -> TargetResult<ShouldTerminate, Self> {
+        info!("Killing target process");
+        if let Some(pid) = pid {
+            debug!("Sending SIGKILL to process {}", pid.get());
+            send_sig(pid.get() as u32, &Signal::SIGKILL);
+            self.context.take();
+            Ok(ShouldTerminate::No)
+        } else if let Ok(pid) = self
+            .get_pid()
+            .map_err(|_| -> TargetError<Self::Error> { TargetError::NonFatal })
+        {
+            send_sig(pid, &Signal::SIGKILL);
+            debug!("Sent SIGKILL to process {}", pid);
+            self.context.take();
+            Ok(ShouldTerminate::No)
+        } else {
+            debug!("No target process to kill");
+            Err(TargetError::NonFatal)
+        }
+    }
+
+    fn restart(&mut self) -> Result<(), Self::Error> {
+        if let Ok(pid) = self
+            .get_pid()
+            .map_err(|_| -> TargetError<Self::Error> { TargetError::NonFatal })
+        {
+            debug!("Restarting process {}", pid);
+            send_sig(pid, &Signal::SIGTERM);
+            let exe = self
+                .exec_path
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("no exec path to restart"))?;
+            let mut cmd = process::Command::new(exe);
+            let handle = cmd.spawn()?;
+            self.bound_pid = Some(handle.id());
             return Ok(());
         }
+        bail!("failed to restart")
+    }
 
+    fn support_current_active_pid(
+        &mut self,
+    ) -> Option<gdbstub::target::ext::extended_mode::CurrentActivePidOps<'_, Self>> {
+        Some(self)
+    }
+}
+
+impl CurrentActivePid for EdbgTarget {
+    fn current_active_pid(&mut self) -> Result<gdbstub::common::Pid, Self::Error> {
+        debug!("Getting current active PID");
+        let pid = self.get_pid()?;
+        Ok(gdbstub::common::Pid::new(pid as usize).unwrap())
+    }
+}
+
+impl EdbgTarget {
+    pub fn get_active_threads(&self) -> Result<Vec<NonZero<usize>>> {
         let pid = self.get_pid()? as i32;
 
         let process = Process::new(pid)?;
@@ -130,7 +221,6 @@ impl EdbgTarget {
             .map(|t| NonZero::new(t.tid as usize).expect("TID 0 is invalid"))
             .collect();
 
-        self.cached_threads = Some(threads);
-        Ok(())
+        Ok(threads)
     }
 }

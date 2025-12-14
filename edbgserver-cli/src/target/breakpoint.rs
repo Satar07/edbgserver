@@ -131,9 +131,17 @@ impl EdbgTarget {
             if let Some(item) = self.ring_buf.next() {
                 let ptr = item.as_ptr() as *const DataT;
                 let data = unsafe { std::ptr::read_unaligned(ptr) };
+                guard.clear_ready();
                 info!("Initial UProbe Hit! PID: {}, PC: {:#x}", data.tid, data.pc);
                 self.context = Some(data);
-                guard.clear_ready();
+                let pid = data.pid;
+                let exe = procfs::process::Process::new(pid as i32).and_then(|p| p.exe())?;
+                debug!(
+                    "Target process executable path: {}",
+                    exe.canonicalize()?.as_os_str().display()
+                );
+                self.exec_path = Some(exe);
+                self.bound_pid = Some(pid);
                 return Ok(());
             }
             guard.clear_ready();

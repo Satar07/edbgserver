@@ -1,8 +1,7 @@
-use std::collections::HashMap;
-use std::num::NonZero;
 use std::os::fd::OwnedFd;
+use std::{collections::HashMap, path::PathBuf};
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use aya::{
     Ebpf,
     maps::{MapData, RingBuf},
@@ -23,7 +22,7 @@ use gdbstub::{
     },
 };
 use gdbstub_arch::aarch64::{AArch64, reg::AArch64CoreRegs};
-use log::{debug, error, warn};
+use log::{debug, warn};
 use std::os::fd::AsFd;
 use tokio::io::{Interest, unix::AsyncFd};
 
@@ -42,7 +41,8 @@ pub struct EdbgTarget {
     active_breakpoints: HashMap<u64, UProbeLinkId>,
     temp_step_breakpoints: Option<(u64, UProbeLinkId)>,
     resume_actions: Vec<(Tid, ThreadAction)>,
-    cached_threads: Option<Vec<NonZero<usize>>>,
+    exec_path: Option<PathBuf>,
+    bound_pid: Option<u32>,
 }
 
 impl EdbgTarget {
@@ -71,7 +71,8 @@ impl EdbgTarget {
             active_breakpoints: HashMap::new(),
             temp_step_breakpoints: None,
             resume_actions: Vec::new(),
-            cached_threads: None,
+            exec_path: None,
+            bound_pid: None,
         }
     }
 
@@ -84,12 +85,8 @@ impl EdbgTarget {
     }
 
     pub fn get_pid(&self) -> Result<u32> {
-        if let Some(ctx) = self.context {
-            Ok(ctx.pid)
-        } else {
-            error!("No target PID set");
-            Err(anyhow!("No target PID set"))
-        }
+        self.bound_pid
+            .ok_or_else(|| anyhow::anyhow!("Target process is not running or not attached"))
     }
 }
 
@@ -111,6 +108,13 @@ impl Target for EdbgTarget {
     fn support_memory_map(
         &mut self,
     ) -> Option<gdbstub::target::ext::memory_map::MemoryMapOps<'_, Self>> {
+        Some(self)
+    }
+
+    #[inline(always)]
+    fn support_extended_mode(
+        &mut self,
+    ) -> Option<gdbstub::target::ext::extended_mode::ExtendedModeOps<'_, Self>> {
         Some(self)
     }
 }
@@ -196,7 +200,7 @@ impl MultiThreadBase for EdbgTarget {
         debug!("listing active threads");
         let threads = self.get_active_threads()?;
         for tid in threads {
-            thread_is_active(*tid);
+            thread_is_active(tid);
         }
         Ok(())
     }
