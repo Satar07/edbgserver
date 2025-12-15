@@ -1,2 +1,3 @@
+- feat: auxv support
 - feat: attach support
 - feat: hardware breakpoint

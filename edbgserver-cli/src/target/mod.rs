@@ -28,6 +28,7 @@ use tokio::io::{Interest, unix::AsyncFd};
 
 use crate::target::multithread::ThreadAction;
 
+mod auvx;
 mod breakpoint;
 mod host_io;
 mod memory_map;
@@ -134,6 +135,11 @@ impl Target for EdbgTarget {
     fn support_exec_file(
         &mut self,
     ) -> Option<gdbstub::target::ext::exec_file::ExecFileOps<'_, Self>> {
+        Some(self)
+    }
+
+    #[inline(always)]
+    fn support_auxv(&mut self) -> Option<gdbstub::target::ext::auxv::AuxvOps<'_, Self>> {
         Some(self)
     }
 }
