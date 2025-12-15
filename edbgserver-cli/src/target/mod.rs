@@ -2,6 +2,8 @@ use std::os::fd::OwnedFd;
 use std::{collections::HashMap, path::PathBuf};
 
 use anyhow::Result;
+use aya::programs::PerfEvent;
+use aya::programs::perf_event::PerfEventLinkId;
 use aya::{
     Ebpf,
     maps::{MapData, RingBuf},
@@ -40,7 +42,8 @@ pub struct EdbgTarget {
     pub context: Option<DataT>,
     pub ring_buf: RingBuf<MapData>,
     pub notifier: AsyncFd<OwnedFd>,
-    active_breakpoints: HashMap<u64, UProbeLinkId>,
+    active_sw_breakpoints: HashMap<u64, UProbeLinkId>,
+    active_hw_breakpoints: HashMap<u64, PerfEventLinkId>,
     temp_step_breakpoints: Option<(u64, UProbeLinkId)>,
     resume_actions: Vec<(Tid, ThreadAction)>,
     exec_path: Option<PathBuf>,
@@ -54,11 +57,17 @@ pub const HOST_IO_FD_START: u32 = 100;
 impl EdbgTarget {
     pub fn new(mut ebpf: Ebpf) -> Self {
         let program: &mut UProbe = ebpf
-            .program_mut("edbgserver")
-            .expect("cannot find ebpf program edbgserver")
+            .program_mut("probe_callback")
+            .expect("cannot find ebpf program probe_callback")
             .try_into()
             .expect("failed to convert ebpf program to uProbe");
         program.load().expect("failed to load uProbe program");
+        let program: &mut PerfEvent = ebpf
+            .program_mut("perf_callback")
+            .expect("cannot find ebpf program perf_callback")
+            .try_into()
+            .expect("failed to convert ebpf program to PerfEvent");
+        program.load().expect("failed to load PerfEvent program");
         let event_map = ebpf.take_map("EVENTS").expect("EVENTS map not found");
         let ringbuf = RingBuf::try_from(event_map).expect("failed to convert map to ringbuf");
         let notifier = AsyncFd::with_interest(
@@ -74,7 +83,8 @@ impl EdbgTarget {
             context: None,
             ring_buf: ringbuf,
             notifier,
-            active_breakpoints: HashMap::new(),
+            active_sw_breakpoints: HashMap::new(),
+            active_hw_breakpoints: HashMap::new(),
             temp_step_breakpoints: None,
             resume_actions: Vec::new(),
             exec_path: None,
@@ -84,12 +94,20 @@ impl EdbgTarget {
         }
     }
 
-    fn program_mut(&mut self) -> &mut UProbe {
+    fn get_probe_program(&mut self) -> &mut UProbe {
         self.ebpf
-            .program_mut("edbgserver")
-            .expect("cannot find ebpf program edbgserver")
+            .program_mut("probe_callback")
+            .expect("cannot find ebpf program probe_callback")
             .try_into()
             .expect("failed to convert ebpf program to uProbe")
+    }
+
+    fn get_perf_event_program(&mut self) -> &mut PerfEvent {
+        self.ebpf
+            .program_mut("perf_callback")
+            .expect("cannot find ebpf program perf_callback")
+            .try_into()
+            .expect("failed to convert ebpf program to PerfEvent")
     }
 
     pub fn get_pid(&self) -> Result<u32> {

@@ -164,7 +164,7 @@ impl EdbgTarget {
             .calculation_next_pc(curr_pc, tid)
             .map_err(|e| anyhow!("Failed to calculate next PC for single step: {}", e))?;
         debug!("Next PC calculated: {:#x}", next_pc);
-        if self.active_breakpoints.contains_key(&next_pc) {
+        if self.active_sw_breakpoints.contains_key(&next_pc) {
             return Ok(());
         }
         match self.internel_attach_uprobe(next_pc) {

@@ -1,11 +1,16 @@
 use std::{path::PathBuf, str::FromStr};
 
 use anyhow::Result;
-use aya::programs::uprobe::UProbeLinkId;
+use aya::programs::{
+    perf_event::{
+        BreakpointConfig, PerfEventConfig, PerfEventLinkId, PerfEventScope, SamplePolicy,
+    },
+    uprobe::UProbeLinkId,
+};
 use edbgserver_common::DataT;
 use gdbstub::target::{
     TargetError, TargetResult,
-    ext::breakpoints::{Breakpoints, SwBreakpoint, SwBreakpointOps},
+    ext::breakpoints::{Breakpoints, HwBreakpoint, HwBreakpointOps, SwBreakpoint, SwBreakpointOps},
 };
 use log::{debug, error, info};
 use procfs::process::MMapPath;
@@ -17,6 +22,11 @@ impl Breakpoints for EdbgTarget {
     fn support_sw_breakpoint(&mut self) -> Option<SwBreakpointOps<'_, Self>> {
         Some(self)
     }
+
+    #[inline(always)]
+    fn support_hw_breakpoint(&mut self) -> Option<HwBreakpointOps<'_, Self>> {
+        Some(self)
+    }
 }
 
 impl SwBreakpoint for EdbgTarget {
@@ -25,7 +35,7 @@ impl SwBreakpoint for EdbgTarget {
         addr: u64,
         _kind: <Self::Arch as gdbstub::arch::Arch>::BreakpointKind,
     ) -> TargetResult<bool, Self> {
-        if self.active_breakpoints.contains_key(&addr) {
+        if self.active_sw_breakpoints.contains_key(&addr) {
             return Ok(false);
         }
         self.internel_attach_uprobe(addr)
@@ -35,7 +45,7 @@ impl SwBreakpoint for EdbgTarget {
             })
             .map(|link_id| {
                 info!("Attached UProbe at VMA: {:#x}", addr);
-                self.active_breakpoints.insert(addr, link_id);
+                self.active_sw_breakpoints.insert(addr, link_id);
                 true
             })
     }
@@ -45,9 +55,49 @@ impl SwBreakpoint for EdbgTarget {
         addr: u64,
         _kind: <Self::Arch as gdbstub::arch::Arch>::BreakpointKind,
     ) -> TargetResult<bool, Self> {
-        if let Some(link_id) = self.active_breakpoints.remove(&addr) {
+        if let Some(link_id) = self.active_sw_breakpoints.remove(&addr) {
             log::info!("Detaching UProbe at VMA: {:#x}", addr);
-            self.program_mut().detach(link_id).map_err(|e| {
+            self.get_probe_program().detach(link_id).map_err(|e| {
+                error!("aya detach failed: {}", e);
+                TargetError::NonFatal
+            })?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+}
+
+impl HwBreakpoint for EdbgTarget {
+    fn add_hw_breakpoint(
+        &mut self,
+        addr: <Self::Arch as gdbstub::arch::Arch>::Usize,
+        _kind: <Self::Arch as gdbstub::arch::Arch>::BreakpointKind,
+    ) -> TargetResult<bool, Self> {
+        if self.active_hw_breakpoints.contains_key(&addr) {
+            return Ok(false);
+        }
+        match self.internel_attach_perf_event(addr) {
+            Ok(link_id) => {
+                info!("Attached perf event at VMA: {:#x}", addr);
+                self.active_hw_breakpoints.insert(addr, link_id);
+                Ok(true)
+            }
+            Err(e) => {
+                error!("Failed to attach perf event at VMA {:#x}: {}", addr, e);
+                Ok(false)
+            }
+        }
+    }
+
+    fn remove_hw_breakpoint(
+        &mut self,
+        addr: <Self::Arch as gdbstub::arch::Arch>::Usize,
+        _kind: <Self::Arch as gdbstub::arch::Arch>::BreakpointKind,
+    ) -> TargetResult<bool, Self> {
+        if let Some(link_id) = self.active_hw_breakpoints.remove(&addr) {
+            log::info!("Detaching perf event at VMA: {:#x}", addr);
+            self.get_perf_event_program().detach(link_id).map_err(|e| {
                 error!("aya detach failed: {}", e);
                 TargetError::NonFatal
             })?;
@@ -94,8 +144,23 @@ impl EdbgTarget {
             target, location, addr
         );
         let link_id = self
-            .program_mut()
+            .get_probe_program()
             .attach(location, target.canonicalize()?, Some(target_pid), None)
+            .map_err(|e| anyhow::anyhow!("aya attach failed: {}", e))?;
+        Ok(link_id)
+    }
+
+    pub fn internel_attach_perf_event(&mut self, addr: u64) -> Result<PerfEventLinkId> {
+        debug!("Attaching perf event to {}", addr);
+        let config = PerfEventConfig::Breakpoint(BreakpointConfig::Instruction { address: addr });
+        let scope = PerfEventScope::OneProcess {
+            pid: self.get_pid()?,
+            cpu: None,
+        };
+        let sample_policy = SamplePolicy::Period(1); // sample every events
+        let link_id = self
+            .get_perf_event_program()
+            .attach(config, scope, sample_policy, true)
             .map_err(|e| anyhow::anyhow!("aya attach failed: {}", e))?;
         Ok(link_id)
     }
@@ -112,14 +177,14 @@ impl EdbgTarget {
             binary_target.canonicalize()?.as_os_str().display(),
             break_point
         );
-        let link_id = self.program_mut().attach(
+        let link_id = self.get_probe_program().attach(
             break_point,
             binary_target.canonicalize()?,
             target_pid,
             None,
         )?;
 
-        self.active_breakpoints.insert(break_point, link_id);
+        self.active_sw_breakpoints.insert(break_point, link_id);
         Ok(())
     }
 
@@ -160,7 +225,7 @@ impl EdbgTarget {
                         "Temp breakpoint hit at {:#x} for PID: {}. Detaching UProbe.",
                         addr, context.tid
                     );
-                    if let Err(e) = self.program_mut().detach(link_id) {
+                    if let Err(e) = self.get_probe_program().detach(link_id) {
                         error!("Failed to detach UProbe at {:#x}: {}", addr, e);
                     }
                 } else {
@@ -168,7 +233,7 @@ impl EdbgTarget {
                         "Trap at {:#x} does not match temp breakpoint at {:#x}. Cleaning up temp BP anyway.",
                         context.pc, addr
                     );
-                    let _ = self.program_mut().detach(link_id);
+                    let _ = self.get_probe_program().detach(link_id);
                 }
             }
         } else {
