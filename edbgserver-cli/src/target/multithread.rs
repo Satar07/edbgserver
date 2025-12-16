@@ -141,16 +141,21 @@ impl ExtendedMode for EdbgTarget {
         }
     }
 
-    fn attach(&mut self, _pid: gdbstub::common::Pid) -> TargetResult<(), Self> {
-        error!("attach not support!");
-        Err(TargetError::NonFatal)
+    fn attach(&mut self, pid: gdbstub::common::Pid) -> TargetResult<(), Self> {
+        debug!("attach to pid {}", pid);
+        Ok(())
     }
 
     fn query_if_attached(
         &mut self,
-        _pid: gdbstub::common::Pid,
+        pid: gdbstub::common::Pid,
     ) -> TargetResult<gdbstub::target::ext::extended_mode::AttachKind, Self> {
-        error!("attach not support!");
+        if let Ok(current_pid) = self.get_pid()
+            && current_pid as usize == pid.get()
+        {
+            debug!("Already attached to pid {}", pid);
+            return Ok(gdbstub::target::ext::extended_mode::AttachKind::Attach);
+        }
         Err(TargetError::NonFatal)
     }
 
