@@ -9,11 +9,15 @@ use aya::programs::{
     uprobe::UProbeLinkId,
 };
 use edbgserver_common::DataT;
-use gdbstub::target::{
-    TargetError, TargetResult,
-    ext::breakpoints::{
-        Breakpoints, HwBreakpoint, HwBreakpointOps, HwWatchpoint, HwWatchpointOps, SwBreakpoint,
-        SwBreakpointOps, WatchKind,
+use gdbstub::{
+    common::Tid,
+    stub::MultiThreadStopReason,
+    target::{
+        TargetError, TargetResult,
+        ext::breakpoints::{
+            Breakpoints, HwBreakpoint, HwBreakpointOps, HwWatchpoint, HwWatchpointOps,
+            SwBreakpoint, SwBreakpointOps, WatchKind,
+        },
     },
 };
 use log::{debug, error, info};
@@ -117,6 +121,12 @@ impl HwBreakpoint for EdbgTarget {
     }
 }
 
+pub struct WatchPointMeta {
+    link_id: PerfEventLinkId,
+    kind: WatchKind,
+    len: u64,
+}
+
 impl HwWatchpoint for EdbgTarget {
     fn add_hw_watchpoint(
         &mut self,
@@ -130,7 +140,8 @@ impl HwWatchpoint for EdbgTarget {
         match self.internel_attach_perf_event_watch_point(addr, len, kind) {
             Ok(link_id) => {
                 info!("Attached perf event (watch point) at VMA: {:#x}", addr);
-                self.active_hw_watchpoint.insert(addr, link_id);
+                self.active_hw_watchpoint
+                    .insert(addr, WatchPointMeta { link_id, kind, len });
                 Ok(true)
             }
             Err(e) => {
@@ -146,12 +157,14 @@ impl HwWatchpoint for EdbgTarget {
         _len: <Self::Arch as gdbstub::arch::Arch>::Usize,
         _kind: gdbstub::target::ext::breakpoints::WatchKind,
     ) -> TargetResult<bool, Self> {
-        if let Some(link_id) = self.active_hw_watchpoint.remove(&addr) {
+        if let Some(watch_point_meta) = self.active_hw_watchpoint.remove(&addr) {
             log::info!("Detaching perf event (watch point) at VMA: {:#x}", addr);
-            self.get_perf_event_program().detach(link_id).map_err(|e| {
-                error!("aya detach failed: {}", e);
-                TargetError::NonFatal
-            })?;
+            self.get_perf_event_program()
+                .detach(watch_point_meta.link_id)
+                .map_err(|e| {
+                    error!("aya detach failed: {}", e);
+                    TargetError::NonFatal
+                })?;
             Ok(true)
         } else {
             Ok(false)
@@ -303,6 +316,51 @@ impl EdbgTarget {
                 return Ok(());
             }
             guard.clear_ready();
+        }
+    }
+
+    pub fn determine_stop_reason(
+        &self,
+        tid: u32,
+        pc: u64,
+        fault_addr: u64,
+    ) -> MultiThreadStopReason<u64> {
+        let tid = Tid::new(tid as usize).unwrap();
+        if let Some((step_pc, _)) = self.temp_step_breakpoints
+            && pc == step_pc
+        {
+            debug!("Step breakpoint hit at {:#x} for PID: {}", pc, tid);
+            return MultiThreadStopReason::DoneStep;
+        }
+        if self.active_sw_breakpoints.contains_key(&pc) {
+            debug!("Software breakpoint hit at {:#x} for PID: {}", pc, tid);
+            return MultiThreadStopReason::SwBreak(tid);
+        }
+        if self.active_hw_breakpoints.contains_key(&pc) {
+            debug!("Hardware breakpoint hit at {:#x} for PID: {}", pc, tid);
+            return MultiThreadStopReason::HwBreak(tid);
+        }
+        for (watch_start, meta) in &self.active_hw_watchpoint {
+            if fault_addr >= *watch_start && fault_addr < *watch_start + meta.len {
+                debug!(
+                    "Watchpoint hit at {:#x} (watch range: {:#x} - {:#x}) for PID: {}",
+                    fault_addr,
+                    watch_start,
+                    watch_start + meta.len,
+                    tid
+                );
+                return MultiThreadStopReason::Watch {
+                    tid,
+                    kind: meta.kind,
+                    addr: *watch_start,
+                };
+            }
+        }
+
+        debug!("stop reason fallback to SIGSTOP for PID: {}", tid);
+        MultiThreadStopReason::SignalWithThread {
+            tid,
+            signal: gdbstub::common::Signal::SIGSTOP,
         }
     }
 

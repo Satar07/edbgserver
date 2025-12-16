@@ -40,6 +40,8 @@ fn try_probe_callback(ctx: &ProbeContext) -> Result<i64, i64> {
             (*data_ptr).pc = (*ctx.regs).pc;
             (*data_ptr).sp = (*ctx.regs).sp;
             (*data_ptr).pstate = (*ctx.regs).pstate;
+            (*data_ptr).fault_addr = (*ctx.regs).pc;
+            (*data_ptr).event_source = edbgserver_common::EdbgSource::Uprobe;
         }
         entry.submit(0);
     } else {
@@ -78,6 +80,8 @@ fn try_perf_callback(ctx: &PerfEventContext) -> Result<i64, i64> {
             (*data_ptr).pc = (*ctx).regs.pc;
             (*data_ptr).sp = (*ctx).regs.sp;
             (*data_ptr).pstate = (*ctx).regs.pstate;
+            (*data_ptr).fault_addr = (*ctx).addr;
+            (*data_ptr).event_source = edbgserver_common::EdbgSource::PerfEvent;
         }
         entry.submit(0);
     } else {

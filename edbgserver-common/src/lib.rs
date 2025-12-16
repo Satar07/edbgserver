@@ -9,6 +9,15 @@ pub struct DataT {
     pub sp: u64,
     pub pc: u64,
     pub pstate: u64,
+    pub fault_addr: u64,
+    pub event_source: EdbgSource,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EdbgSource {
+    Uprobe,
+    PerfEvent,
 }
 
 #[cfg(feature = "user")]

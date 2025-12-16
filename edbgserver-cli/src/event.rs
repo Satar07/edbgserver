@@ -2,7 +2,7 @@ use edbgserver_common::DataT;
 use gdbstub::{
     common::Signal,
     stub::{
-        MultiThreadStopReason, SingleThreadStopReason,
+        MultiThreadStopReason,
         run_blocking::{BlockingEventLoop, Event, WaitForStopReasonError},
     },
     target::Target,
@@ -43,20 +43,31 @@ impl BlockingEventLoop for EdbgEventLoop {
                             Ok(g) => g,
                             Err(e) => return Err(WaitForStopReasonError::Connection(e)),
                         };
-                        let mut event_received = false;
+                        let mut pending_events = Vec::new();
                         while let Some(item) = target.ring_buf.next() {
                             let ptr = item.as_ptr() as *const DataT;
                             let data = unsafe { std::ptr::read_unaligned(ptr) };
-                            info!("Event receive! Tid: {}, PC: {:#x}", data.tid, data.pc);
-                            target.context = Some(data);
-                            event_received = true;
+                            pending_events.push(data);
                         }
                         guard.clear_ready();
-                        target.handle_trap();
-                        if event_received {
-                            return Ok(Event::TargetStopped(
-                                MultiThreadStopReason::Signal(Signal::SIGTRAP)
-                            ));
+                        if pending_events.is_empty() {
+                            continue;
+                        }
+                        // uprobe is preferred to prevent perf event in 'uprobe single step area'
+                        let best_event = pending_events.iter()
+                            .find(|e| e.event_source == edbgserver_common::EdbgSource::Uprobe)
+                            .or_else(|| pending_events.last());
+                        if let Some(data) = best_event {
+                            info!("Event! PID: {}, TID: {}, PC: {:#x}", data.pid, data.tid, data.pc);
+                            target.context = Some(*data);
+                            let stop_reason = target.determine_stop_reason(data.tid, data.pc, data.fault_addr);
+                            target.handle_trap();
+                            return Ok(Event::TargetStopped(stop_reason));
+                        } else {
+                            log::warn!("Received events but all were kernel-space traps. Ignoring.");
+                            for e in pending_events {
+                                log::debug!("Ignored artifact: PC={:#x}", e.pc);
+                            }
                         }
                     }
                 }
