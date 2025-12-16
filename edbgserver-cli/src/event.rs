@@ -2,7 +2,7 @@ use edbgserver_common::DataT;
 use gdbstub::{
     common::Signal,
     stub::{
-        SingleThreadStopReason,
+        MultiThreadStopReason, SingleThreadStopReason,
         run_blocking::{BlockingEventLoop, Event, WaitForStopReasonError},
     },
     target::Target,
@@ -17,7 +17,7 @@ pub struct EdbgEventLoop {}
 impl BlockingEventLoop for EdbgEventLoop {
     type Target = EdbgTarget;
     type Connection = TokioConnection;
-    type StopReason = SingleThreadStopReason<u64>;
+    type StopReason = MultiThreadStopReason<u64>;
 
     fn wait_for_stop_reason(
         target: &mut Self::Target,
@@ -47,7 +47,7 @@ impl BlockingEventLoop for EdbgEventLoop {
                         while let Some(item) = target.ring_buf.next() {
                             let ptr = item.as_ptr() as *const DataT;
                             let data = unsafe { std::ptr::read_unaligned(ptr) };
-                            info!("Hit UProbe! PID: {}, PC: {:#x}", data.tid, data.pc);
+                            info!("Event receive! Tid: {}, PC: {:#x}", data.tid, data.pc);
                             target.context = Some(data);
                             event_received = true;
                         }
@@ -55,7 +55,7 @@ impl BlockingEventLoop for EdbgEventLoop {
                         target.handle_trap();
                         if event_received {
                             return Ok(Event::TargetStopped(
-                                SingleThreadStopReason::Signal(Signal::SIGTRAP)
+                                MultiThreadStopReason::Signal(Signal::SIGTRAP)
                             ));
                         }
                     }
@@ -72,6 +72,6 @@ impl BlockingEventLoop for EdbgEventLoop {
             target.get_pid()?
         );
         send_sigstop(target.get_pid()?);
-        Ok(Some(SingleThreadStopReason::Signal(Signal::SIGINT)))
+        Ok(Some(MultiThreadStopReason::Signal(Signal::SIGINT)))
     }
 }

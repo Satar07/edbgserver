@@ -1,2 +1,3 @@
 - feat: attach support
-- feat: watch point support
+- feat: x64 arch support
+- fix: use syscall to get pc when stopped (also need update context)

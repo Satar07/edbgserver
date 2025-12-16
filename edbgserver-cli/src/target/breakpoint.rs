@@ -3,14 +3,18 @@ use std::{path::PathBuf, str::FromStr};
 use anyhow::Result;
 use aya::programs::{
     perf_event::{
-        BreakpointConfig, PerfEventConfig, PerfEventLinkId, PerfEventScope, SamplePolicy,
+        BreakpointConfig, PerfBreakpointLength, PerfBreakpointType, PerfEventConfig,
+        PerfEventLinkId, PerfEventScope, SamplePolicy,
     },
     uprobe::UProbeLinkId,
 };
 use edbgserver_common::DataT;
 use gdbstub::target::{
     TargetError, TargetResult,
-    ext::breakpoints::{Breakpoints, HwBreakpoint, HwBreakpointOps, SwBreakpoint, SwBreakpointOps},
+    ext::breakpoints::{
+        Breakpoints, HwBreakpoint, HwBreakpointOps, HwWatchpoint, HwWatchpointOps, SwBreakpoint,
+        SwBreakpointOps, WatchKind,
+    },
 };
 use log::{debug, error, info};
 use procfs::process::MMapPath;
@@ -25,6 +29,11 @@ impl Breakpoints for EdbgTarget {
 
     #[inline(always)]
     fn support_hw_breakpoint(&mut self) -> Option<HwBreakpointOps<'_, Self>> {
+        Some(self)
+    }
+
+    #[inline(always)]
+    fn support_hw_watchpoint(&mut self) -> Option<HwWatchpointOps<'_, Self>> {
         Some(self)
     }
 }
@@ -77,7 +86,7 @@ impl HwBreakpoint for EdbgTarget {
         if self.active_hw_breakpoints.contains_key(&addr) {
             return Ok(false);
         }
-        match self.internel_attach_perf_event(addr) {
+        match self.internel_attach_perf_event_break_point(addr) {
             Ok(link_id) => {
                 info!("Attached perf event at VMA: {:#x}", addr);
                 self.active_hw_breakpoints.insert(addr, link_id);
@@ -97,6 +106,48 @@ impl HwBreakpoint for EdbgTarget {
     ) -> TargetResult<bool, Self> {
         if let Some(link_id) = self.active_hw_breakpoints.remove(&addr) {
             log::info!("Detaching perf event at VMA: {:#x}", addr);
+            self.get_perf_event_program().detach(link_id).map_err(|e| {
+                error!("aya detach failed: {}", e);
+                TargetError::NonFatal
+            })?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+}
+
+impl HwWatchpoint for EdbgTarget {
+    fn add_hw_watchpoint(
+        &mut self,
+        addr: <Self::Arch as gdbstub::arch::Arch>::Usize,
+        len: <Self::Arch as gdbstub::arch::Arch>::Usize,
+        kind: WatchKind,
+    ) -> TargetResult<bool, Self> {
+        if self.active_hw_watchpoint.contains_key(&addr) {
+            return Ok(false);
+        }
+        match self.internel_attach_perf_event_watch_point(addr, len, kind) {
+            Ok(link_id) => {
+                info!("Attached perf event (watch point) at VMA: {:#x}", addr);
+                self.active_hw_watchpoint.insert(addr, link_id);
+                Ok(true)
+            }
+            Err(e) => {
+                error!("Failed to attach perf event at VMA {:#x}: {}", addr, e);
+                Ok(false)
+            }
+        }
+    }
+
+    fn remove_hw_watchpoint(
+        &mut self,
+        addr: <Self::Arch as gdbstub::arch::Arch>::Usize,
+        _len: <Self::Arch as gdbstub::arch::Arch>::Usize,
+        _kind: gdbstub::target::ext::breakpoints::WatchKind,
+    ) -> TargetResult<bool, Self> {
+        if let Some(link_id) = self.active_hw_watchpoint.remove(&addr) {
+            log::info!("Detaching perf event (watch point) at VMA: {:#x}", addr);
             self.get_perf_event_program().detach(link_id).map_err(|e| {
                 error!("aya detach failed: {}", e);
                 TargetError::NonFatal
@@ -150,7 +201,7 @@ impl EdbgTarget {
         Ok(link_id)
     }
 
-    pub fn internel_attach_perf_event(&mut self, addr: u64) -> Result<PerfEventLinkId> {
+    pub fn internel_attach_perf_event_break_point(&mut self, addr: u64) -> Result<PerfEventLinkId> {
         debug!("Attaching perf event to {}", addr);
         let config = PerfEventConfig::Breakpoint(BreakpointConfig::Instruction { address: addr });
         let scope = PerfEventScope::OneProcess {
@@ -158,6 +209,48 @@ impl EdbgTarget {
             cpu: None,
         };
         let sample_policy = SamplePolicy::Period(1); // sample every events
+        let link_id = self
+            .get_perf_event_program()
+            .attach(config, scope, sample_policy, true)
+            .map_err(|e| anyhow::anyhow!("aya attach failed: {}", e))?;
+        Ok(link_id)
+    }
+
+    pub fn internel_attach_perf_event_watch_point(
+        &mut self,
+        address: u64,
+        length: u64,
+        kind: WatchKind,
+    ) -> Result<PerfEventLinkId> {
+        debug!("Attaching perf event (watch point) to {:#x}", address);
+        let rw_flags = match kind {
+            WatchKind::Write => PerfBreakpointType::Write,
+            WatchKind::Read => PerfBreakpointType::Read,
+            WatchKind::ReadWrite => PerfBreakpointType::ReadWrite,
+        };
+        let length = match length {
+            1 => PerfBreakpointLength::Len1,
+            2 => PerfBreakpointLength::Len2,
+            4 => PerfBreakpointLength::Len4,
+            8 => PerfBreakpointLength::Len8,
+            _ => {
+                return Err(anyhow::anyhow!(
+                    "Unsupported watchpoint length: {}. Supported lengths are 1, 2, 4, or 8 bytes.",
+                    length
+                ));
+            }
+        };
+        let config = PerfEventConfig::Breakpoint(BreakpointConfig::Data {
+            r#type: rw_flags,
+            address,
+            length,
+        });
+        let scope = PerfEventScope::OneProcess {
+            pid: self.get_pid()?,
+            cpu: None,
+        };
+        let sample_policy = SamplePolicy::Period(1); // sample every events
+        debug!("attach args: {:?} {:?} {:?}", config, scope, sample_policy);
         let link_id = self
             .get_perf_event_program()
             .attach(config, scope, sample_policy, true)

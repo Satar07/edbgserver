@@ -4,6 +4,9 @@
 
 __attribute__((noinline)) void trigger_breakpoint() {
   printf("[Target] Trigger function called!\n");
+  int a = 1;
+  a = 2;
+  a = 3;
 }
 
 int main() {

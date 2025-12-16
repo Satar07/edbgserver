@@ -28,6 +28,7 @@ pub fn probe_callback(ctx: ProbeContext) -> i64 {
 }
 
 fn try_probe_callback(ctx: &ProbeContext) -> Result<i64, i64> {
+    debug!(ctx, "entered probe callback");
     if let Some(mut entry) = EVENTS.reserve::<DataT>(0) {
         let data_ptr = entry.as_mut_ptr();
         unsafe {
@@ -44,7 +45,7 @@ fn try_probe_callback(ctx: &ProbeContext) -> Result<i64, i64> {
     } else {
         error!(ctx, "failed to reserve ringbuf space");
     }
-    debug!(ctx, "send data to probe array");
+    debug!(ctx, "send data to event array");
     unsafe {
         bpf_send_signal(SIGSTOP);
     }
@@ -64,6 +65,7 @@ pub fn perf_callback(ctx: PerfEventContext) -> i64 {
 }
 
 fn try_perf_callback(ctx: &PerfEventContext) -> Result<i64, i64> {
+    debug!(ctx, "entered perf callback");
     if let Some(mut entry) = EVENTS.reserve::<DataT>(0) {
         let data_ptr = entry.as_mut_ptr();
         let ctx = ctx.ctx;
@@ -81,7 +83,7 @@ fn try_perf_callback(ctx: &PerfEventContext) -> Result<i64, i64> {
     } else {
         error!(ctx, "failed to reserve ringbuf space");
     }
-    debug!(ctx, "send data to probe array");
+    debug!(ctx, "send data to event array");
     unsafe {
         bpf_send_signal(SIGSTOP);
     }
