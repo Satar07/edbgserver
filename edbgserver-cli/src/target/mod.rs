@@ -32,6 +32,7 @@ use crate::target::multithread::ThreadAction;
 
 mod auvx;
 mod breakpoint;
+mod execfile;
 mod host_io;
 mod memory_map;
 mod multithread;
