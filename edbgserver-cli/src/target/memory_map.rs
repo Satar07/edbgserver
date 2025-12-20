@@ -60,7 +60,7 @@ impl MemoryMap for super::EdbgTarget {
             return Ok(0); // EOF
         }
         let available = xml_bytes.len() - offset;
-        let bytes_to_write = min(available, length);
+        let bytes_to_write = min(available, min(length, buf.len()));
         buf[0..bytes_to_write].copy_from_slice(&xml_bytes[offset..offset + bytes_to_write]);
 
         Ok(bytes_to_write)
