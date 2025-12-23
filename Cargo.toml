@@ -12,11 +12,18 @@ license = "MIT OR Apache-2.0"
 edition = "2024"
 
 [workspace.dependencies]
-aya = { git = "https://github.com/aya-rs/aya", rev = "d238b2ea6f1b2c1aa09a9050415b1c96329af0aa", default-features = false }
-aya-build = { git = "https://github.com/aya-rs/aya", rev = "d238b2ea6f1b2c1aa09a9050415b1c96329af0aa", default-features = false }
-aya-ebpf = { git = "https://github.com/aya-rs/aya", rev = "d238b2ea6f1b2c1aa09a9050415b1c96329af0aa", default-features = false }
-aya-log = { git = "https://github.com/aya-rs/aya", rev = "d238b2ea6f1b2c1aa09a9050415b1c96329af0aa", default-features = false }
-aya-log-ebpf = { git = "https://github.com/aya-rs/aya", rev = "d238b2ea6f1b2c1aa09a9050415b1c96329af0aa", default-features = false }
+# TODO: switch back to official aya
+# aya = { git = "https://github.com/aya-rs/aya", rev = "d238b2ea6f1b2c1aa09a9050415b1c96329af0aa", default-features = false }
+# aya-build = { git = "https://github.com/aya-rs/aya", rev = "d238b2ea6f1b2c1aa09a9050415b1c96329af0aa", default-features = false }
+# aya-ebpf = { git = "https://github.com/aya-rs/aya", rev = "d238b2ea6f1b2c1aa09a9050415b1c96329af0aa", default-features = false }
+# aya-log = { git = "https://github.com/aya-rs/aya", rev = "d238b2ea6f1b2c1aa09a9050415b1c96329af0aa", default-features = false }
+# aya-log-ebpf = { git = "https://github.com/aya-rs/aya", rev = "d238b2ea6f1b2c1aa09a9050415b1c96329af0aa", default-features = false }
+aya = { git = "https://github.com/Satar07/aya/", rev = "5e7f49d", default-features = false }
+aya-build = { git = "https://github.com/Satar07/aya/", rev = "5e7f49d", default-features = false }
+aya-ebpf = { git = "https://github.com/Satar07/aya/", rev = "5e7f49d", default-features = false }
+aya-log = { git = "https://github.com/Satar07/aya/", rev = "5e7f49d", default-features = false }
+aya-log-ebpf = { git = "https://github.com/Satar07/aya/", rev = "5e7f49d", default-features = false }
+
 
 anyhow = { version = "1", default-features = false }
 cargo_metadata = { version = "0.23.0", default-features = false }

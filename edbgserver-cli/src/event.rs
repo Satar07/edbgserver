@@ -9,7 +9,7 @@ use gdbstub::{
 };
 use log::{debug, info};
 
-use crate::{connection::TokioConnection, target::EdbgTarget, utils::send_sigstop};
+use crate::{connection::TokioConnection, target::EdbgTarget, utils::send_sig_to_process};
 use tokio::{io::AsyncReadExt, runtime::Handle};
 
 pub struct EdbgEventLoop {}
@@ -82,7 +82,7 @@ impl BlockingEventLoop for EdbgEventLoop {
             "GDB sent interrupt (Ctrl-C), stopping target pid {}",
             target.get_pid()?
         );
-        send_sigstop(target.get_pid()?);
+        send_sig_to_process(target.get_pid()?, &Signal::SIGINT);
         Ok(Some(MultiThreadStopReason::Signal(Signal::SIGINT)))
     }
 }

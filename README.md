@@ -1,13 +1,37 @@
 # edbgserver
 
+A debugger server implemented using **eBPF**, designed to operate **without `ptrace`** system calls. It currently supports the **ARM64 (AArch64)** architecture and is compatible with both **Android** and **Linux** environments.
+
+## Acknowledgments
+
+Special thanks to [ShinoLeah](https://github.com/ShinoLeah) for the project [eDBG](https://github.com/ShinoLeah/eDBG). The core architecture and concepts of `edbgserver` are heavily inspired by his work.
+
+## Features & Limitations
+
+### Working Features
+
+- **Process & Thread Management:** Basic lifecycle tracking and management.
+- **Hardware Breakpoints:** Utilize ARM64 hardware registers for debugging.
+- **Memory I/O:** Reading from and writing to process memory.
+
+### Current Limitations (eBPF Constraints)
+
+Due to current eBPF subsystem limitations, the following behaviors are not yet supported:
+
+- **Register Modification:** Modifying CPU register values is currently not possible.
+- **Cross-Thread Register Access:** Reading registers from threads other than the one currently triggered (potential for future resolution).
+- **Thread Isolation:** Running/stepping a specific single thread independently.
+- **APK-mmaped Breakpoints:** Adding `uprobe` breakpoints to `.so` files that are directly `mmap`\-ed from an APK (potential for future resolution).
+
 ## Prerequisites
 
 1. stable rust toolchains: `rustup toolchain install stable`
 2. nightly rust toolchains: `rustup toolchain install nightly --component rust-src`
-3. (if cross-compiling) rustup target: `rustup target add ${ARCH}-unknown-linux-musl`
-4. (if cross-compiling) LLVM: (e.g.) `brew install llvm` (on macOS)
-5. (if cross-compiling) C toolchain: (e.g.) [`brew install filosottile/musl-cross/musl-cross`](https://github.com/FiloSottile/homebrew-musl-cross) (on macOS)
-6. bpf-linker: `cargo install bpf-linker` (`--no-default-features` on macOS)
+3. zig: [download from ziglang.org](https://ziglang.org/download/)
+4. rustup target: `rustup target add ${ARCH}-unknown-linux-musl`
+5. LLVM: (e.g.) `brew install llvm` (on macOS)
+6. C toolchain: (e.g.) [`brew install filosottile/musl-cross/musl-cross`](https://github.com/FiloSottile/homebrew-musl-cross) (on macOS)
+7. bpf-linker: `cargo install bpf-linker` (`--no-default-features` on macOS)
 
 ## Build & Run
 
@@ -15,6 +39,7 @@ Use `cargo build`, `cargo check`, etc. as normal. Run your program with:
 
 ```shell
 cargo run --release
+cargo zigbuild --release --package edbgserver-cli --target aarch64-unknown-linux-musl
 ```
 
 Cargo build scripts are used to automatically build the eBPF correctly and include it in the

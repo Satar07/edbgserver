@@ -6,17 +6,19 @@ use gdbstub::{
     target::{
         TargetError, TargetResult,
         ext::{
-            base::multithread::{MultiThreadResume, MultiThreadSingleStep},
+            base::multithread::{
+                MultiThreadResume, MultiThreadSchedulerLocking, MultiThreadSingleStep,
+            },
             extended_mode::{CurrentActivePid, ExtendedMode, ShouldTerminate},
         },
     },
 };
-use log::{debug, error, info};
+use log::{debug, error, info, trace};
 use procfs::process::Process;
 
 use crate::{
     target::EdbgTarget,
-    utils::{send_sig, send_sigcont},
+    utils::{send_sig_to_process, send_sig_to_thread, send_sigcont_to_thread},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -31,8 +33,15 @@ impl MultiThreadSingleStep for EdbgTarget {
         tid: Tid,
         signal: Option<Signal>,
     ) -> Result<(), Self::Error> {
-        debug!("set resume action step for TID {:?}", tid);
+        debug!("set resume action step for TID: {}", tid);
         self.resume_actions.push((tid, ThreadAction::Step(signal)));
+        Ok(())
+    }
+}
+
+impl MultiThreadSchedulerLocking for EdbgTarget {
+    fn set_resume_action_scheduler_lock(&mut self) -> Result<(), Self::Error> {
+        self.is_scheduler_lock = true;
         Ok(())
     }
 }
@@ -41,6 +50,7 @@ impl MultiThreadResume for EdbgTarget {
     fn clear_resume_actions(&mut self) -> Result<(), Self::Error> {
         debug!("clear resume actions");
         self.resume_actions.clear();
+        self.is_scheduler_lock = false;
         Ok(())
     }
 
@@ -49,7 +59,7 @@ impl MultiThreadResume for EdbgTarget {
         tid: Tid,
         signal: Option<Signal>,
     ) -> Result<(), Self::Error> {
-        debug!("set resume action continue for TID {:?}", tid);
+        debug!("set resume action continue for TID: {}", tid);
         self.resume_actions
             .push((tid, ThreadAction::Continue(signal)));
         Ok(())
@@ -62,15 +72,23 @@ impl MultiThreadResume for EdbgTarget {
         Some(self)
     }
 
+    #[inline(always)]
+    fn support_scheduler_locking(
+        &mut self,
+    ) -> Option<gdbstub::target::ext::base::multithread::MultiThreadSchedulerLockingOps<'_, Self>>
+    {
+        Some(self)
+    }
+
     fn resume(&mut self) -> Result<(), Self::Error> {
         let target_pid = self.get_pid()?;
-        debug!("Resuming process {}", target_pid);
+        debug!("start handling resuming process {}", target_pid);
 
         let dispatch_signal = |tid: u32, signal: Option<&Signal>| {
             if let Some(sig) = signal {
-                send_sig(tid, sig);
+                send_sig_to_thread(target_pid, tid, sig);
             } else {
-                send_sigcont(tid);
+                send_sigcont_to_thread(target_pid, tid);
             }
         };
 
@@ -89,6 +107,11 @@ impl MultiThreadResume for EdbgTarget {
             }
         }
 
+        if self.is_scheduler_lock {
+            debug!("Scheduler locking is enabled; not continuing other threads");
+            return Ok(());
+        }
+
         let handled_tids: HashSet<u32> = self
             .resume_actions
             .iter()
@@ -101,7 +124,7 @@ impl MultiThreadResume for EdbgTarget {
             .filter(|tid| !handled_tids.contains(tid))
             .for_each(|tid| {
                 debug!("Continuing thread {} (implicit)", tid);
-                send_sigcont(tid);
+                send_sigcont_to_thread(target_pid, tid);
             });
         Ok(())
     }
@@ -163,14 +186,14 @@ impl ExtendedMode for EdbgTarget {
         info!("Killing target process");
         if let Some(pid) = pid {
             debug!("Sending SIGKILL to process {}", pid.get());
-            send_sig(pid.get() as u32, &Signal::SIGKILL);
+            send_sig_to_process(pid.get() as u32, &Signal::SIGKILL);
             self.context.take();
             Ok(ShouldTerminate::No)
         } else if let Ok(pid) = self
             .get_pid()
             .map_err(|_| -> TargetError<Self::Error> { TargetError::NonFatal })
         {
-            send_sig(pid, &Signal::SIGKILL);
+            send_sig_to_process(pid, &Signal::SIGKILL);
             debug!("Sent SIGKILL to process {}", pid);
             self.context.take();
             Ok(ShouldTerminate::No)
@@ -186,7 +209,7 @@ impl ExtendedMode for EdbgTarget {
             .map_err(|_| -> TargetError<Self::Error> { TargetError::NonFatal })
         {
             debug!("Restarting process {}", pid);
-            send_sig(pid, &Signal::SIGTERM);
+            send_sig_to_process(pid, &Signal::SIGTERM);
             let exe = self
                 .exec_path
                 .as_ref()
@@ -199,6 +222,7 @@ impl ExtendedMode for EdbgTarget {
         bail!("failed to restart")
     }
 
+    #[inline(always)]
     fn support_current_active_pid(
         &mut self,
     ) -> Option<gdbstub::target::ext::extended_mode::CurrentActivePidOps<'_, Self>> {
@@ -208,7 +232,7 @@ impl ExtendedMode for EdbgTarget {
 
 impl CurrentActivePid for EdbgTarget {
     fn current_active_pid(&mut self) -> Result<gdbstub::common::Pid, Self::Error> {
-        debug!("Getting current active PID");
+        trace!("Getting current active PID");
         let pid = self.get_pid()?;
         Ok(gdbstub::common::Pid::new(pid as usize).unwrap())
     }

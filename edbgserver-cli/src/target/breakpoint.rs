@@ -1,5 +1,3 @@
-use std::{path::PathBuf, str::FromStr};
-
 use anyhow::Result;
 use aya::programs::{
     perf_event::{
@@ -20,8 +18,9 @@ use gdbstub::{
         },
     },
 };
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use procfs::process::MMapPath;
+use std::path::PathBuf;
 
 use crate::target::EdbgTarget;
 
@@ -210,7 +209,13 @@ impl EdbgTarget {
         let link_id = self
             .get_probe_program()
             .attach(location, target.canonicalize()?, Some(target_pid), None)
-            .map_err(|e| anyhow::anyhow!("aya attach failed: {}", e))?;
+            .map_err(|e| {
+                error!(
+                    "aya uprobe attach failed. location: {:#x}, target: {:?}, pid: {}. error: {}",
+                    location, target, target_pid, e
+                );
+                anyhow::anyhow!("aya urpobe attach failed: {}", e)
+            })?;
         Ok(link_id)
     }
 
@@ -225,7 +230,15 @@ impl EdbgTarget {
         let link_id = self
             .get_perf_event_program()
             .attach(config, scope, sample_policy, true)
-            .map_err(|e| anyhow::anyhow!("aya attach failed: {}", e))?;
+            .map_err(|e| {
+                error!(
+                    "aya perf event attach failed. addr: {:#x}, pid: {}. error: {}",
+                    addr,
+                    self.get_pid().unwrap_or(0),
+                    e
+                );
+                anyhow::anyhow!("aya perf event attach failed: {}", e)
+            })?;
         Ok(link_id)
     }
 
@@ -273,11 +286,10 @@ impl EdbgTarget {
 
     pub fn attach_init_probe(
         &mut self,
-        binary: &str,
+        binary_target: PathBuf,
         break_point: u64,
         target_pid: Option<u32>,
     ) -> Result<()> {
-        let binary_target = PathBuf::from_str(binary)?;
         info!(
             "Attaching Initial UProbe at {}:{}",
             binary_target.canonicalize()?.as_os_str().display(),
@@ -290,7 +302,7 @@ impl EdbgTarget {
             None,
         )?;
 
-        self.active_sw_breakpoints.insert(break_point, link_id);
+        self.init_probe_link_id = Some(link_id);
         Ok(())
     }
 
@@ -299,23 +311,62 @@ impl EdbgTarget {
 
         loop {
             let mut guard = self.notifier.readable_mut().await?;
-            if let Some(item) = self.ring_buf.next() {
+            let mut captured_events = Vec::new();
+            while let Some(item) = self.ring_buf.next() {
                 let ptr = item.as_ptr() as *const DataT;
                 let data = unsafe { std::ptr::read_unaligned(ptr) };
-                guard.clear_ready();
-                info!("Initial UProbe Hit! PID: {}, PC: {:#x}", data.tid, data.pc);
-                self.context = Some(data);
-                let pid = data.pid;
-                let exe = procfs::process::Process::new(pid as i32).and_then(|p| p.exe())?;
-                debug!(
-                    "Target process executable path: {}",
-                    exe.canonicalize()?.as_os_str().display()
-                );
-                self.exec_path = Some(exe);
-                self.bound_pid = Some(pid);
-                return Ok(());
+                captured_events.push(data);
             }
             guard.clear_ready();
+            if captured_events.is_empty() {
+                continue;
+            }
+
+            // first event is the one we care about
+            let first_event = captured_events.first().unwrap();
+            let target_pid = first_event.pid;
+            let target_tid = first_event.tid;
+            let trap_pc = first_event.pc;
+
+            info!(
+                "Initial UProbe Hit! Locking onto PID: {}. TID: {}, PC: {:#x}",
+                target_pid, target_tid, trap_pc
+            );
+            self.context = Some(*first_event);
+
+            let exe = procfs::process::Process::new(target_pid as i32).and_then(|p| p.exe())?;
+            debug!(
+                "Target process executable path: {}",
+                exe.canonicalize()?.as_os_str().display()
+            );
+            self.exec_path = Some(exe);
+            self.bound_pid = Some(target_pid);
+
+            if let Some(link_id) = self.init_probe_link_id.take() {
+                info!("Removing initial temporary breakpoint");
+                if let Err(e) = self.get_probe_program().detach(link_id) {
+                    error!("Failed to detach initial probe: {}", e);
+                }
+            } else {
+                warn!(
+                    "Initial trap hit at {:#x}, but no init urpobe link id to remove.",
+                    trap_pc
+                );
+            }
+
+            // handle any extra events from other processes in the same target
+            for event in captured_events.iter().skip(1) {
+                if event.pid != target_pid {
+                    warn!(
+                        "Ignored process PID: {} (PC: {:#x}). We are locked to PID: {}",
+                        event.pid, event.pc, target_pid
+                    );
+                } else {
+                    debug!("Skipping extra event for target PID in init batch.");
+                }
+            }
+
+            return Ok(());
         }
     }
 
@@ -329,21 +380,21 @@ impl EdbgTarget {
         if let Some((step_pc, _)) = self.temp_step_breakpoints
             && pc == step_pc
         {
-            debug!("Step breakpoint hit at {:#x} for PID: {}", pc, tid);
+            debug!("Step breakpoint hit at {:#x} for TID: {}", pc, tid);
             return MultiThreadStopReason::DoneStep;
         }
         if self.active_sw_breakpoints.contains_key(&pc) {
-            debug!("Software breakpoint hit at {:#x} for PID: {}", pc, tid);
+            debug!("Software breakpoint hit at {:#x} for TID: {}", pc, tid);
             return MultiThreadStopReason::SwBreak(tid);
         }
         if self.active_hw_breakpoints.contains_key(&pc) {
-            debug!("Hardware breakpoint hit at {:#x} for PID: {}", pc, tid);
+            debug!("Hardware breakpoint hit at {:#x} for TID: {}", pc, tid);
             return MultiThreadStopReason::HwBreak(tid);
         }
         for (watch_start, meta) in &self.active_hw_watchpoint {
             if fault_addr >= *watch_start && fault_addr < *watch_start + meta.len {
                 debug!(
-                    "Watchpoint hit at {:#x} (watch range: {:#x} - {:#x}) for PID: {}",
+                    "Watchpoint hit at {:#x} (watch range: {:#x} - {:#x}) for TID: {}",
                     fault_addr,
                     watch_start,
                     watch_start + meta.len,
@@ -357,7 +408,7 @@ impl EdbgTarget {
             }
         }
 
-        debug!("stop reason fallback to SIGSTOP for PID: {}", tid);
+        debug!("stop reason fallback to SIGSTOP for TID: {}", tid);
         MultiThreadStopReason::SignalWithThread {
             tid,
             signal: gdbstub::common::Signal::SIGSTOP,

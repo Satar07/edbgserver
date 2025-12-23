@@ -15,6 +15,7 @@ use tokio::net::TcpListener;
 use crate::{connection::TokioConnection, event::EdbgEventLoop, target::EdbgTarget};
 mod connection;
 mod event;
+mod resolve_target;
 mod target;
 mod utils;
 
@@ -45,7 +46,8 @@ Logging & Debugging:
   Available levels: error, warn, info, debug, trace.
 
   Example:
-    RUST_LOG=debug ./edbgserver-cli -t ./target -b 0x401000
+    RUST_LOG=debug ./edbgserver -t ./target -b 0x401000
+    ./edbgserver -p io.cyril.supervipplayer -t libsupervipplayer.so -b 0x17E0
 "#
 )]
 struct Cli {
@@ -55,12 +57,16 @@ struct Cli {
 
     /// The Process ID (PID) of the target process to attach to.
     /// If omitted, the server will automatically attach to the first process that triggers the breakpoint in the specified binary.
-    #[arg(short, long)]
+    #[arg(short = 'P', long)]
     pid: Option<u32>,
 
-    /// Path to the target binary or executable file.
+    /// Path to the target binary or library.
     #[arg(short, long)]
     target: String,
+
+    /// [Android only] The package name of target application.
+    #[arg(short = 'p', long)]
+    package: Option<String>,
 
     /// The initial breakpoint address (file offset).
     /// The server will set a UProbe at this location to intercept execution and wait for GDB.
@@ -71,23 +77,23 @@ struct Cli {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    debug!("start edbgserver at pid: {}", std::process::id());
     env_logger::init();
     let opt = Cli::parse();
-    debug!("start edbgserver at pid: {}", std::process::id());
+    let (init_uprobe_file_path, init_uprobe_file_offset) =
+        resolve_target::resolve_target(&opt.target, opt.package.as_deref(), opt.break_point)?;
+
     let ebpf = init_aya();
 
     // main target new
-    let mut target = EdbgTarget::new(ebpf);
-    target
-        .attach_init_probe(opt.target.as_str(), opt.break_point, opt.pid)
+    let mut edbg_target = EdbgTarget::new(ebpf);
+    edbg_target
+        .attach_init_probe(init_uprobe_file_path, init_uprobe_file_offset, opt.pid)
         .context("Failed to attach init probe, make sure breakpoint and target is valid")?;
 
-    println!(
-        "Step 1: Waiting for Target Initial Trap at {}...",
-        opt.target
-    );
+    println!("Step 1: Waiting for Target Initial Trap...");
 
-    match target.wait_for_init_trap().await {
+    match edbg_target.wait_for_init_trap().await {
         Ok(_) => info!("Target context captured successfully via eBPF"),
         Err(e) => bail!("Failed to catch initial trap: {}", e),
     }
@@ -115,7 +121,7 @@ async fn main() -> Result<()> {
 
     // main run
     let result =
-        tokio::task::spawn_blocking(move || gdb.run_blocking::<EdbgEventLoop>(&mut target))
+        tokio::task::spawn_blocking(move || gdb.run_blocking::<EdbgEventLoop>(&mut edbg_target))
             .await
             .expect("GDB Stub task panicked");
     match result {

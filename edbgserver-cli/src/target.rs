@@ -24,7 +24,7 @@ use gdbstub::{
     },
 };
 use gdbstub_arch::aarch64::{AArch64, reg::AArch64CoreRegs};
-use log::{debug, warn};
+use log::{debug, trace, warn};
 use std::os::fd::AsFd;
 use tokio::io::{Interest, unix::AsyncFd};
 
@@ -47,7 +47,9 @@ pub struct EdbgTarget {
     active_hw_breakpoints: HashMap<u64, PerfEventLinkId>,
     active_hw_watchpoint: HashMap<u64, breakpoint::WatchPointMeta>,
     temp_step_breakpoints: Option<(u64, UProbeLinkId)>,
+    init_probe_link_id: Option<UProbeLinkId>,
     resume_actions: Vec<(Tid, ThreadAction)>,
+    is_scheduler_lock: bool,
     exec_path: Option<PathBuf>,
     bound_pid: Option<u32>,
     host_io_files: HashMap<u32, std::fs::File>,
@@ -89,7 +91,9 @@ impl EdbgTarget {
             active_hw_breakpoints: HashMap::new(),
             active_hw_watchpoint: HashMap::new(),
             temp_step_breakpoints: None,
+            init_probe_link_id: None,
             resume_actions: Vec::new(),
+            is_scheduler_lock: false,
             exec_path: None,
             bound_pid: None,
             host_io_files: HashMap::new(),
@@ -243,7 +247,7 @@ impl MultiThreadBase for EdbgTarget {
         &mut self,
         thread_is_active: &mut dyn FnMut(gdbstub::common::Tid),
     ) -> Result<(), Self::Error> {
-        debug!("listing active threads");
+        trace!("listing active threads");
         let threads = self.get_active_threads()?;
         for tid in threads {
             thread_is_active(tid);
