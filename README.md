@@ -39,7 +39,7 @@ Use `cargo build`, `cargo check`, etc. as normal. Run your program with:
 
 ```shell
 cargo run --release
-cargo zigbuild --release --package edbgserver-cli --target aarch64-unknown-linux-musl
+cargo zigbuild --release --target aarch64-unknown-linux-musl
 ```
 
 Cargo build scripts are used to automatically build the eBPF correctly and include it in the
