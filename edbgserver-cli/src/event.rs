@@ -76,12 +76,7 @@ impl BlockingEventLoop for EdbgEventLoop {
                         if let Some(data) = best_event {
                             info!("Event! PID: {}, TID: {}, PC: {:#x}", data.pid, data.tid, data.pc);
                             target.context = Some(*data);
-                            let tid = if target.is_multi_thread {
-                                data.tid
-                            } else {
-                                data.pid
-                            };
-                            let stop_reason = target.determine_stop_reason(tid, data.pc, data.fault_addr);
+                            let stop_reason = target.determine_stop_reason(data.tid, data.pc, data.fault_addr);
                             target.handle_trap();
                             return Ok(Event::TargetStopped(stop_reason));
                         } else {
