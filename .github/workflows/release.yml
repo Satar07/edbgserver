@@ -31,19 +31,18 @@ jobs:
             - name: Checkout repository
               uses: actions/checkout@v4
 
-            # 2. Install Rust Stable (Project requirement 1)
-            # We also add the target architecture here
-            - name: Install Rust Stable
-              uses: dtolnay/rust-toolchain@stable
-              with:
-                  targets: ${{ matrix.target }}
-
-            # 3. Install Rust Nightly with rust-src (Project requirement 2)
+            # 2. Install Rust Nightly with rust-src
             # This is required for compiling the eBPF component
             - name: Install Rust Nightly
               uses: dtolnay/rust-toolchain@nightly
               with:
                   components: rust-src
+
+            # 3. Install Rust Stable
+            - name: Install Rust Stable
+              uses: dtolnay/rust-toolchain@stable
+              with:
+                  targets: ${{ matrix.target }}
 
             # 4. Install LLVM (Project requirement 5)
             # Required for bpf-linker and compiling eBPF
