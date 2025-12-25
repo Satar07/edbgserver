@@ -1,8 +1,11 @@
-use gdbstub::conn::{Connection, ConnectionExt};
 use std::io;
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
-use tokio::net::TcpStream;
-use tokio::runtime::Handle;
+
+use gdbstub::conn::{Connection, ConnectionExt};
+use tokio::{
+    io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
+    net::TcpStream,
+    runtime::Handle,
+};
 
 pub struct TokioConnection {
     pub stream: BufReader<TcpStream>,

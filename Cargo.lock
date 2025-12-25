@@ -108,7 +108,7 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 [[package]]
 name = "aya"
 version = "0.13.2"
-source = "git+https://github.com/Satar07/aya/?rev=5e7f49d#5e7f49d1c01ca835d57da9d57d1f56295cf451be"
+source = "git+https://github.com/Satar07/aya/?rev=4af9109#4af91092840f95e8b91ac00476512ed4314e040c"
 dependencies = [
  "assert_matches",
  "aya-obj",
@@ -125,7 +125,7 @@ dependencies = [
 [[package]]
 name = "aya-build"
 version = "0.1.3"
-source = "git+https://github.com/Satar07/aya/?rev=5e7f49d#5e7f49d1c01ca835d57da9d57d1f56295cf451be"
+source = "git+https://github.com/Satar07/aya/?rev=4af9109#4af91092840f95e8b91ac00476512ed4314e040c"
 dependencies = [
  "anyhow",
  "cargo_metadata",
@@ -134,7 +134,7 @@ dependencies = [
 [[package]]
 name = "aya-ebpf"
 version = "0.1.2"
-source = "git+https://github.com/Satar07/aya/?rev=5e7f49d#5e7f49d1c01ca835d57da9d57d1f56295cf451be"
+source = "git+https://github.com/Satar07/aya/?rev=4af9109#4af91092840f95e8b91ac00476512ed4314e040c"
 dependencies = [
  "aya-build",
  "aya-ebpf-bindings",
@@ -146,7 +146,7 @@ dependencies = [
 [[package]]
 name = "aya-ebpf-bindings"
 version = "0.1.2"
-source = "git+https://github.com/Satar07/aya/?rev=5e7f49d#5e7f49d1c01ca835d57da9d57d1f56295cf451be"
+source = "git+https://github.com/Satar07/aya/?rev=4af9109#4af91092840f95e8b91ac00476512ed4314e040c"
 dependencies = [
  "aya-build",
  "aya-ebpf-cty",
@@ -155,7 +155,7 @@ dependencies = [
 [[package]]
 name = "aya-ebpf-cty"
 version = "0.2.3"
-source = "git+https://github.com/Satar07/aya/?rev=5e7f49d#5e7f49d1c01ca835d57da9d57d1f56295cf451be"
+source = "git+https://github.com/Satar07/aya/?rev=4af9109#4af91092840f95e8b91ac00476512ed4314e040c"
 dependencies = [
  "aya-build",
 ]
@@ -163,7 +163,7 @@ dependencies = [
 [[package]]
 name = "aya-ebpf-macros"
 version = "0.1.2"
-source = "git+https://github.com/Satar07/aya/?rev=5e7f49d#5e7f49d1c01ca835d57da9d57d1f56295cf451be"
+source = "git+https://github.com/Satar07/aya/?rev=4af9109#4af91092840f95e8b91ac00476512ed4314e040c"
 dependencies = [
  "proc-macro2",
  "proc-macro2-diagnostics",
@@ -174,7 +174,7 @@ dependencies = [
 [[package]]
 name = "aya-log"
 version = "0.2.2"
-source = "git+https://github.com/Satar07/aya/?rev=5e7f49d#5e7f49d1c01ca835d57da9d57d1f56295cf451be"
+source = "git+https://github.com/Satar07/aya/?rev=4af9109#4af91092840f95e8b91ac00476512ed4314e040c"
 dependencies = [
  "aya",
  "aya-log-common",
@@ -185,7 +185,7 @@ dependencies = [
 [[package]]
 name = "aya-log-common"
 version = "0.1.16"
-source = "git+https://github.com/Satar07/aya/?rev=5e7f49d#5e7f49d1c01ca835d57da9d57d1f56295cf451be"
+source = "git+https://github.com/Satar07/aya/?rev=4af9109#4af91092840f95e8b91ac00476512ed4314e040c"
 dependencies = [
  "num_enum",
 ]
@@ -193,7 +193,7 @@ dependencies = [
 [[package]]
 name = "aya-log-ebpf"
 version = "0.1.2"
-source = "git+https://github.com/Satar07/aya/?rev=5e7f49d#5e7f49d1c01ca835d57da9d57d1f56295cf451be"
+source = "git+https://github.com/Satar07/aya/?rev=4af9109#4af91092840f95e8b91ac00476512ed4314e040c"
 dependencies = [
  "aya-ebpf",
  "aya-log-common",
@@ -203,7 +203,7 @@ dependencies = [
 [[package]]
 name = "aya-log-ebpf-macros"
 version = "0.1.1"
-source = "git+https://github.com/Satar07/aya/?rev=5e7f49d#5e7f49d1c01ca835d57da9d57d1f56295cf451be"
+source = "git+https://github.com/Satar07/aya/?rev=4af9109#4af91092840f95e8b91ac00476512ed4314e040c"
 dependencies = [
  "aya-log-common",
  "aya-log-parser",
@@ -215,7 +215,7 @@ dependencies = [
 [[package]]
 name = "aya-log-parser"
 version = "0.1.14"
-source = "git+https://github.com/Satar07/aya/?rev=5e7f49d#5e7f49d1c01ca835d57da9d57d1f56295cf451be"
+source = "git+https://github.com/Satar07/aya/?rev=4af9109#4af91092840f95e8b91ac00476512ed4314e040c"
 dependencies = [
  "aya-log-common",
 ]
@@ -223,7 +223,7 @@ dependencies = [
 [[package]]
 name = "aya-obj"
 version = "0.2.2"
-source = "git+https://github.com/Satar07/aya/?rev=5e7f49d#5e7f49d1c01ca835d57da9d57d1f56295cf451be"
+source = "git+https://github.com/Satar07/aya/?rev=4af9109#4af91092840f95e8b91ac00476512ed4314e040c"
 dependencies = [
  "bytes",
  "hashbrown",

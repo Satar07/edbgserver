@@ -20,5 +20,15 @@ pub enum EdbgSource {
     PerfEvent,
 }
 
+#[repr(C, u32)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ThreadFilter {
+    None,
+    Some(u32),
+}
+
 #[cfg(feature = "user")]
 unsafe impl aya::Pod for DataT {}
+
+#[cfg(feature = "user")]
+unsafe impl aya::Pod for ThreadFilter {}

@@ -73,6 +73,10 @@ struct Cli {
     /// Supports hexadecimal (e.g., 0x400000) or decimal input.
     #[arg(short, long, value_parser = maybe_hex::<u64>)]
     break_point: u64,
+
+    /// Run the server in multi-threaded mode.
+    #[arg(short = 'm', long, default_value_t = false)]
+    is_multi_thread: bool,
 }
 
 #[tokio::main]
@@ -86,7 +90,7 @@ async fn main() -> Result<()> {
     let ebpf = init_aya();
 
     // main target new
-    let mut edbg_target = EdbgTarget::new(ebpf);
+    let mut edbg_target = EdbgTarget::new(ebpf, opt.is_multi_thread);
     edbg_target
         .attach_init_probe(init_uprobe_file_path, init_uprobe_file_offset, opt.pid)
         .context("Failed to attach init probe, make sure breakpoint and target is valid")?;

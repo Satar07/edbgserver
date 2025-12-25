@@ -1,4 +1,6 @@
-use anyhow::Result;
+use std::path::PathBuf;
+
+use anyhow::{Context, Result, anyhow};
 use aya::programs::{
     perf_event::{
         BreakpointConfig, PerfBreakpointLength, PerfBreakpointType, PerfEventConfig,
@@ -6,7 +8,7 @@ use aya::programs::{
     },
     uprobe::UProbeLinkId,
 };
-use edbgserver_common::DataT;
+use edbgserver_common::{DataT, ThreadFilter};
 use gdbstub::{
     common::Tid,
     stub::MultiThreadStopReason,
@@ -20,7 +22,6 @@ use gdbstub::{
 };
 use log::{debug, error, info, warn};
 use procfs::process::MMapPath;
-use std::path::PathBuf;
 
 use crate::target::EdbgTarget;
 
@@ -341,6 +342,12 @@ impl EdbgTarget {
             );
             self.exec_path = Some(exe);
             self.bound_pid = Some(target_pid);
+            self.bound_tid = Some(target_tid);
+            if !self.is_multi_thread {
+                self.thread_filter
+                    .set(0, ThreadFilter::Some(target_tid), 0)
+                    .context(anyhow!("thread filter set failed"))?;
+            }
 
             if let Some(link_id) = self.init_probe_link_id.take() {
                 info!("Removing initial temporary breakpoint");

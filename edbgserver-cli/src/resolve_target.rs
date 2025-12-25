@@ -1,8 +1,11 @@
+use std::{
+    fs::File,
+    path::{Path, PathBuf},
+    process::Command,
+};
+
 use anyhow::{Context, Result, anyhow, bail};
 use log::{debug, info};
-use std::fs::File;
-use std::path::{Path, PathBuf};
-use std::process::Command;
 use zip::ZipArchive;
 
 /// Resolve the target library path and break point offset for uprobe to attach.

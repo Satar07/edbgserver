@@ -1,8 +1,12 @@
-use std::ffi::OsStr;
-use std::fs::OpenOptions;
-use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::{FileExt, MetadataExt, OpenOptionsExt};
-use std::path::Path;
+use std::{
+    ffi::OsStr,
+    fs::OpenOptions,
+    os::unix::{
+        ffi::OsStrExt,
+        fs::{FileExt, MetadataExt, OpenOptionsExt},
+    },
+    path::Path,
+};
 
 use gdbstub::target::ext::host_io::{
     HostIo, HostIoClose, HostIoCloseOps, HostIoErrno, HostIoError, HostIoFstat, HostIoFstatOps,

@@ -1,6 +1,7 @@
+use std::io;
+
 use gdbstub::common::Signal;
 use log::{debug, warn};
-use std::io;
 
 fn sys_tgkill(tgid: i32, tid: i32, sig: i32) -> io::Result<()> {
     debug!("Sending signal {} to tgid {} tid {}", sig, tgid, tid);

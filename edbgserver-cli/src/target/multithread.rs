@@ -240,6 +240,13 @@ impl CurrentActivePid for EdbgTarget {
 
 impl EdbgTarget {
     pub fn get_active_threads(&self) -> Result<Vec<NonZero<usize>>> {
+        use anyhow::anyhow;
+        if !self.is_multi_thread {
+            return Ok(vec![
+                NonZero::new(self.bound_tid.ok_or(anyhow!("bound tid not set"))? as usize)
+                    .ok_or(anyhow!("tid is zero"))?,
+            ]);
+        }
         let pid = self.get_pid()? as i32;
 
         let process = Process::new(pid)?;

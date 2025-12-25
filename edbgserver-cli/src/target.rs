@@ -1,15 +1,16 @@
-use std::os::fd::OwnedFd;
-use std::{collections::HashMap, path::PathBuf};
+use std::{
+    collections::HashMap,
+    os::fd::{AsFd, OwnedFd},
+    path::PathBuf,
+};
 
 use anyhow::Result;
-use aya::programs::PerfEvent;
-use aya::programs::perf_event::PerfEventLinkId;
 use aya::{
     Ebpf,
-    maps::{MapData, RingBuf},
-    programs::{UProbe, uprobe::UProbeLinkId},
+    maps::{Array, MapData, RingBuf},
+    programs::{PerfEvent, UProbe, perf_event::PerfEventLinkId, uprobe::UProbeLinkId},
 };
-use edbgserver_common::DataT;
+use edbgserver_common::{DataT, ThreadFilter};
 use gdbstub::{
     common::Tid,
     target::{
@@ -25,7 +26,6 @@ use gdbstub::{
 };
 use gdbstub_arch::aarch64::{AArch64, reg::AArch64CoreRegs};
 use log::{debug, trace, warn};
-use std::os::fd::AsFd;
 use tokio::io::{Interest, unix::AsyncFd};
 
 use crate::target::multithread::ThreadAction;
@@ -43,6 +43,7 @@ pub struct EdbgTarget {
     pub context: Option<DataT>,
     pub ring_buf: RingBuf<MapData>,
     pub notifier: AsyncFd<OwnedFd>,
+    thread_filter: Array<MapData, ThreadFilter>,
     active_sw_breakpoints: HashMap<u64, UProbeLinkId>,
     active_hw_breakpoints: HashMap<u64, PerfEventLinkId>,
     active_hw_watchpoint: HashMap<u64, breakpoint::WatchPointMeta>,
@@ -51,15 +52,17 @@ pub struct EdbgTarget {
     resume_actions: Vec<(Tid, ThreadAction)>,
     is_scheduler_lock: bool,
     exec_path: Option<PathBuf>,
-    bound_pid: Option<u32>,
+    pub bound_pid: Option<u32>,
+    pub bound_tid: Option<u32>,
     host_io_files: HashMap<u32, std::fs::File>,
     next_host_io_fd: u32,
+    pub is_multi_thread: bool,
 }
 
 pub const HOST_IO_FD_START: u32 = 100;
 
 impl EdbgTarget {
-    pub fn new(mut ebpf: Ebpf) -> Self {
+    pub fn new(mut ebpf: Ebpf, is_multi_thread: bool) -> Self {
         let program: &mut UProbe = ebpf
             .program_mut("probe_callback")
             .expect("cannot find ebpf program probe_callback")
@@ -74,6 +77,11 @@ impl EdbgTarget {
         program.load().expect("failed to load PerfEvent program");
         let event_map = ebpf.take_map("EVENTS").expect("EVENTS map not found");
         let ringbuf = RingBuf::try_from(event_map).expect("failed to convert map to ringbuf");
+        let thread_filter = ebpf
+            .take_map("THREAD_FILTER")
+            .expect("THREAD_FILTER map not found");
+        let thread_filter: Array<MapData, ThreadFilter> =
+            Array::try_from(thread_filter).expect("failed to convert filter map");
         let notifier = AsyncFd::with_interest(
             ringbuf
                 .as_fd()
@@ -87,6 +95,7 @@ impl EdbgTarget {
             context: None,
             ring_buf: ringbuf,
             notifier,
+            thread_filter,
             active_sw_breakpoints: HashMap::new(),
             active_hw_breakpoints: HashMap::new(),
             active_hw_watchpoint: HashMap::new(),
@@ -96,8 +105,10 @@ impl EdbgTarget {
             is_scheduler_lock: false,
             exec_path: None,
             bound_pid: None,
+            bound_tid: None,
             host_io_files: HashMap::new(),
             next_host_io_fd: HOST_IO_FD_START,
+            is_multi_thread,
         }
     }
 
@@ -176,7 +187,7 @@ impl MultiThreadBase for EdbgTarget {
         tid: gdbstub::common::Tid,
     ) -> TargetResult<(), Self> {
         if let Some(ctx) = &self.context {
-            if ctx.tid == tid.get() as u32 {
+            if !self.is_multi_thread || ctx.tid == tid.get() as u32 {
                 regs.x = ctx.regs;
                 regs.pc = ctx.pc;
                 regs.sp = ctx.sp;

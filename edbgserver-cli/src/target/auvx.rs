@@ -1,5 +1,4 @@
-use std::fs::File;
-use std::os::unix::fs::FileExt;
+use std::{fs::File, os::unix::fs::FileExt};
 
 use gdbstub::target::{TargetError, TargetResult, ext::auxv::Auxv};
 use log::{debug, error};

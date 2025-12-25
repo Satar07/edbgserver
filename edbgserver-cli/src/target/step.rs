@@ -1,4 +1,3 @@
-use crate::target::EdbgTarget;
 use anyhow::{Result, anyhow, bail};
 use capstone::{
     arch::arm64::{Arm64CC, Arm64Insn, Arm64InsnGroup, Arm64OperandType, Arm64Reg},
@@ -6,6 +5,8 @@ use capstone::{
 };
 use edbgserver_common::DataT;
 use log::{debug, error, info};
+
+use crate::target::EdbgTarget;
 
 impl EdbgTarget {
     fn create_capstone() -> Result<Capstone> {

@@ -8,9 +8,9 @@ use gdbstub::{
     target::Target,
 };
 use log::{debug, info};
+use tokio::{io::AsyncReadExt, runtime::Handle};
 
 use crate::{connection::TokioConnection, target::EdbgTarget, utils::send_sig_to_process};
-use tokio::{io::AsyncReadExt, runtime::Handle};
 
 pub struct EdbgEventLoop {}
 
@@ -44,13 +44,29 @@ impl BlockingEventLoop for EdbgEventLoop {
                             Err(e) => return Err(WaitForStopReasonError::Connection(e)),
                         };
                         let mut pending_events = Vec::new();
+                        debug!("bound tid: {:?}, bound pid: {:?}", target.bound_tid, target.bound_pid);
                         while let Some(item) = target.ring_buf.next() {
                             let ptr = item.as_ptr() as *const DataT;
                             let data = unsafe { std::ptr::read_unaligned(ptr) };
+                            debug!("Received event: PID={}, TID={}, PC={:#x}, FA={:#x}, SRC={:?}",
+                                data.pid, data.tid, data.pc, data.fault_addr, data.event_source);
+                            if let Some(b_pid) = target.bound_pid
+                                && data.pid != b_pid
+                            {
+                                continue;
+                            }
+                            if let Some(b_tid) = target.bound_tid
+                                && !target.is_multi_thread
+                                && data.tid != b_tid
+                            {
+                                continue;
+                            }
                             pending_events.push(data);
                         }
                         guard.clear_ready();
                         if pending_events.is_empty() {
+                            // however, the target has been stopped. so we must continue it again
+                            send_sig_to_process(target.bound_pid.unwrap(), &Signal::SIGCONT);
                             continue;
                         }
                         // uprobe is preferred to prevent perf event in 'uprobe single step area'
@@ -60,7 +76,12 @@ impl BlockingEventLoop for EdbgEventLoop {
                         if let Some(data) = best_event {
                             info!("Event! PID: {}, TID: {}, PC: {:#x}", data.pid, data.tid, data.pc);
                             target.context = Some(*data);
-                            let stop_reason = target.determine_stop_reason(data.tid, data.pc, data.fault_addr);
+                            let tid = if target.is_multi_thread {
+                                data.tid
+                            } else {
+                                data.pid
+                            };
+                            let stop_reason = target.determine_stop_reason(tid, data.pc, data.fault_addr);
                             target.handle_trap();
                             return Ok(Event::TargetStopped(stop_reason));
                         } else {
