@@ -32,6 +32,7 @@ pub fn probe_callback(ctx: ProbeContext) -> i64 {
     }
 }
 
+#[cfg(any(bpf_target_arch = "aarch64", debug_assertions))]
 fn try_probe_callback(ctx: &ProbeContext) -> Result<i64, i64> {
     debug!(ctx, "entered probe callback");
     let current_tid = bpf_get_current_pid_tgid() as u32;
@@ -51,16 +52,74 @@ fn try_probe_callback(ctx: &ProbeContext) -> Result<i64, i64> {
     }
     if let Some(mut entry) = EVENTS.reserve::<DataT>(0) {
         let data_ptr = entry.as_mut_ptr();
+        let regs = unsafe { &*ctx.regs };
         unsafe {
             (*data_ptr).tid = bpf_get_current_pid_tgid() as u32;
             (*data_ptr).pid = (bpf_get_current_pid_tgid() >> 32) as u32;
             for i in 0..31 {
-                (*data_ptr).regs[i] = (*ctx.regs).regs[i];
+                (*data_ptr).regs[i] = regs.regs[i];
             }
-            (*data_ptr).pc = (*ctx.regs).pc;
-            (*data_ptr).sp = (*ctx.regs).sp;
-            (*data_ptr).pstate = (*ctx.regs).pstate;
-            (*data_ptr).fault_addr = (*ctx.regs).pc;
+            (*data_ptr).pc = regs.pc;
+            (*data_ptr).sp = regs.sp;
+            (*data_ptr).pstate = regs.pstate;
+            (*data_ptr).fault_addr = regs.pc;
+            (*data_ptr).event_source = edbgserver_common::EdbgSource::Uprobe;
+        }
+        entry.submit(0);
+    } else {
+        error!(ctx, "failed to reserve ringbuf space");
+    }
+    debug!(ctx, "send data to event array");
+    unsafe {
+        bpf_send_signal(SIGSTOP);
+    }
+    debug!(ctx, "sent SIGSTOP to current process");
+    Ok(0)
+}
+
+#[cfg(bpf_target_arch = "x86_64")]
+fn try_probe_callback(ctx: &ProbeContext) -> Result<i64, i64> {
+    debug!(ctx, "entered probe callback");
+    let current_tid = bpf_get_current_pid_tgid() as u32;
+    let filter = THREAD_FILTER.get(0).unwrap_or(&ThreadFilter::None);
+    match filter {
+        ThreadFilter::None => debug!(ctx, "thread filter is none"),
+        ThreadFilter::Some(t) => debug!(ctx, "thread filter tid: {}", *t),
+    }
+    if let ThreadFilter::Some(tid) = filter
+        && *tid != current_tid
+    {
+        debug!(
+            ctx,
+            "thread id {} does not match filter {}", current_tid, *tid
+        );
+        return Ok(0);
+    }
+    if let Some(mut entry) = EVENTS.reserve::<DataT>(0) {
+        let data_ptr = entry.as_mut_ptr();
+        let regs = unsafe { *ctx.regs };
+        unsafe {
+            (*data_ptr).tid = bpf_get_current_pid_tgid() as u32;
+            (*data_ptr).pid = (bpf_get_current_pid_tgid() >> 32) as u32;
+            (*data_ptr).r15 = regs.r15;
+            (*data_ptr).r14 = regs.r14;
+            (*data_ptr).r13 = regs.r13;
+            (*data_ptr).r12 = regs.r12;
+            (*data_ptr).rbp = regs.rbp;
+            (*data_ptr).rbx = regs.rbx;
+            (*data_ptr).r11 = regs.r11;
+            (*data_ptr).r10 = regs.r10;
+            (*data_ptr).r9 = regs.r9;
+            (*data_ptr).r8 = regs.r8;
+            (*data_ptr).rax = regs.rax;
+            (*data_ptr).rcx = regs.rcx;
+            (*data_ptr).rdx = regs.rdx;
+            (*data_ptr).rsi = regs.rsi;
+            (*data_ptr).rdi = regs.rdi;
+            (*data_ptr).rip = regs.rip;
+            (*data_ptr).rflags = regs.eflags;
+            (*data_ptr).rsp = regs.rsp;
+            (*data_ptr).fault_addr = regs.rip;
             (*data_ptr).event_source = edbgserver_common::EdbgSource::Uprobe;
         }
         entry.submit(0);
@@ -86,6 +145,7 @@ pub fn perf_callback(ctx: PerfEventContext) -> i64 {
     }
 }
 
+#[cfg(any(bpf_target_arch = "aarch64", debug_assertions))]
 fn try_perf_callback(ctx: &PerfEventContext) -> Result<i64, i64> {
     debug!(ctx, "entered perf callback");
     let current_tid = bpf_get_current_pid_tgid() as u32;
@@ -97,17 +157,66 @@ fn try_perf_callback(ctx: &PerfEventContext) -> Result<i64, i64> {
     }
     if let Some(mut entry) = EVENTS.reserve::<DataT>(0) {
         let data_ptr = entry.as_mut_ptr();
-        let ctx = ctx.ctx;
+        let regs = unsafe { (*ctx.ctx).regs };
         unsafe {
             (*data_ptr).tid = bpf_get_current_pid_tgid() as u32;
             (*data_ptr).pid = (bpf_get_current_pid_tgid() >> 32) as u32;
             for i in 0..31 {
-                (*data_ptr).regs[i] = (*ctx).regs.regs[i];
+                (*data_ptr).regs[i] = regs.regs[i];
             }
-            (*data_ptr).pc = (*ctx).regs.pc;
-            (*data_ptr).sp = (*ctx).regs.sp;
-            (*data_ptr).pstate = (*ctx).regs.pstate;
-            (*data_ptr).fault_addr = (*ctx).addr;
+            (*data_ptr).pc = regs.pc;
+            (*data_ptr).sp = regs.sp;
+            (*data_ptr).pstate = regs.pstate;
+            (*data_ptr).fault_addr = (*ctx.ctx).addr;
+            (*data_ptr).event_source = edbgserver_common::EdbgSource::PerfEvent;
+        }
+        entry.submit(0);
+    } else {
+        error!(ctx, "failed to reserve ringbuf space");
+    }
+    debug!(ctx, "send data to event array");
+    unsafe {
+        bpf_send_signal(SIGSTOP);
+    }
+    debug!(ctx, "sent SIGSTOP to current process");
+    Ok(0)
+}
+
+#[cfg(bpf_target_arch = "x86_64")]
+fn try_perf_callback(ctx: &PerfEventContext) -> Result<i64, i64> {
+    debug!(ctx, "entered perf callback");
+    let current_tid = bpf_get_current_pid_tgid() as u32;
+    let filter = THREAD_FILTER.get(0).unwrap_or(&ThreadFilter::None);
+    if let ThreadFilter::Some(tid) = filter
+        && *tid != current_tid
+    {
+        return Ok(0);
+    }
+    if let Some(mut entry) = EVENTS.reserve::<DataT>(0) {
+        let data_ptr = entry.as_mut_ptr();
+        let regs = unsafe { (*ctx.ctx).regs };
+        unsafe {
+            (*data_ptr).tid = bpf_get_current_pid_tgid() as u32;
+            (*data_ptr).pid = (bpf_get_current_pid_tgid() >> 32) as u32;
+            (*data_ptr).r15 = regs.r15;
+            (*data_ptr).r14 = regs.r14;
+            (*data_ptr).r13 = regs.r13;
+            (*data_ptr).r12 = regs.r12;
+            (*data_ptr).rbp = regs.rbp;
+            (*data_ptr).rbx = regs.rbx;
+            (*data_ptr).r11 = regs.r11;
+            (*data_ptr).r10 = regs.r10;
+            (*data_ptr).r9 = regs.r9;
+            (*data_ptr).r8 = regs.r8;
+            (*data_ptr).rax = regs.rax;
+            (*data_ptr).rcx = regs.rcx;
+            (*data_ptr).rdx = regs.rdx;
+            (*data_ptr).rsi = regs.rsi;
+            (*data_ptr).rdi = regs.rdi;
+            (*data_ptr).rip = regs.rip;
+            (*data_ptr).rflags = regs.eflags;
+            (*data_ptr).rsp = regs.rsp;
+            (*data_ptr).fault_addr = (*ctx.ctx).addr;
             (*data_ptr).event_source = edbgserver_common::EdbgSource::PerfEvent;
         }
         entry.submit(0);

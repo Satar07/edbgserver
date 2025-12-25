@@ -9,6 +9,41 @@ use log::{debug, error, info};
 use crate::target::EdbgTarget;
 
 impl EdbgTarget {
+    pub fn single_step_thread(&mut self, tid: u32, curr_pc: u64) -> Result<()> {
+        let next_pc = self
+            .calculation_next_pc(curr_pc, tid)
+            .map_err(|e| anyhow!("Failed to calculate next PC for single step: {}", e))?;
+        debug!("Next PC calculated: {:#x}", next_pc);
+        if self.active_sw_breakpoints.contains_key(&next_pc) {
+            return Ok(());
+        }
+        match self.internel_attach_uprobe(next_pc) {
+            Ok(link_id) => {
+                info!("Attached UProbe at VMA: {:#x}", next_pc);
+                self.temp_step_breakpoints = Some((next_pc, link_id));
+            }
+            Err(e) => {
+                let (is_svc, insn_len) = {
+                    let cs = EdbgTarget::create_capstone()?;
+                    let code = self.read_instruction(next_pc, tid)?.to_le_bytes();
+                    let insns = cs.disasm_count(&code, next_pc, 1)?;
+                    let insn = insns.first().ok_or(anyhow!("failed to get first insn"))?;
+
+                    let is_svc = Arm64Insn::from(insn.id().0 as u32) == Arm64Insn::ARM64_INS_SVC;
+                    let len = insn.len() as u64;
+                    (is_svc, len)
+                };
+                if is_svc {
+                    info!("Next instruction is SVC, step over");
+                    self.single_step_thread(tid, curr_pc + insn_len)?;
+                } else {
+                    return Err(e);
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn create_capstone() -> Result<Capstone> {
         Capstone::new()
             .arm64()
@@ -17,7 +52,6 @@ impl EdbgTarget {
             .build()
             .map_err(|e| anyhow!("Failed to create Capstone instance: {}", e))
     }
-
     fn read_instruction(&self, pc: u64, tid: u32) -> Result<u32> {
         let mut buf = [0u8; 4];
         use process_memory::{CopyAddress, TryIntoProcessHandle};
@@ -158,41 +192,6 @@ impl EdbgTarget {
                 Ok(insn.address() + insn.len() as u64)
             }
         }
-    }
-
-    pub fn single_step_thread(&mut self, tid: u32, curr_pc: u64) -> Result<()> {
-        let next_pc = self
-            .calculation_next_pc(curr_pc, tid)
-            .map_err(|e| anyhow!("Failed to calculate next PC for single step: {}", e))?;
-        debug!("Next PC calculated: {:#x}", next_pc);
-        if self.active_sw_breakpoints.contains_key(&next_pc) {
-            return Ok(());
-        }
-        match self.internel_attach_uprobe(next_pc) {
-            Ok(link_id) => {
-                info!("Attached UProbe at VMA: {:#x}", next_pc);
-                self.temp_step_breakpoints = Some((next_pc, link_id));
-            }
-            Err(e) => {
-                let (is_svc, insn_len) = {
-                    let cs = EdbgTarget::create_capstone()?;
-                    let code = self.read_instruction(next_pc, tid)?.to_le_bytes(); // read_instruction 可能只需要 &self，如果需要 &mut 则需进一步拆分
-                    let insns = cs.disasm_count(&code, next_pc, 1)?;
-                    let insn = insns.first().ok_or(anyhow!("failed to get first insn"))?;
-
-                    let is_svc = Arm64Insn::from(insn.id().0 as u32) == Arm64Insn::ARM64_INS_SVC;
-                    let len = insn.len() as u64;
-                    (is_svc, len)
-                };
-                if is_svc {
-                    info!("Next instruction is SVC, step over");
-                    self.single_step_thread(tid, curr_pc + insn_len)?;
-                } else {
-                    return Err(e);
-                }
-            }
-        }
-        Ok(())
     }
 }
 

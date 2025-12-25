@@ -327,7 +327,7 @@ impl EdbgTarget {
             let first_event = captured_events.first().unwrap();
             let target_pid = first_event.pid;
             let target_tid = first_event.tid;
-            let trap_pc = first_event.pc;
+            let trap_pc = first_event.pc();
 
             info!(
                 "Initial UProbe Hit! Locking onto PID: {}. TID: {}, PC: {:#x}",
@@ -366,7 +366,7 @@ impl EdbgTarget {
                 if event.pid != target_pid {
                     warn!(
                         "Ignored process PID: {} (PC: {:#x}). We are locked to PID: {}",
-                        event.pid, event.pc, target_pid
+                        event.pid, trap_pc, target_pid
                     );
                 } else {
                     debug!("Skipping extra event for target PID in init batch.");
@@ -426,10 +426,11 @@ impl EdbgTarget {
         if let Some(context) = &self.context {
             debug!(
                 "Handling trap for PID: {}, PC: {:#x}",
-                context.tid, context.pc
+                context.tid,
+                context.pc()
             );
             if let Some((addr, link_id)) = self.temp_step_breakpoints.take() {
-                if addr == context.pc {
+                if addr == context.pc() {
                     debug!(
                         "Temp breakpoint hit at {:#x} for PID: {}. Detaching UProbe.",
                         addr, context.tid
@@ -440,7 +441,8 @@ impl EdbgTarget {
                 } else {
                     debug!(
                         "Trap at {:#x} does not match temp breakpoint at {:#x}. Cleaning up temp BP anyway.",
-                        context.pc, addr
+                        context.pc(),
+                        addr
                     );
                     let _ = self.get_probe_program().detach(link_id);
                 }

@@ -139,12 +139,12 @@ async fn test_breakpoint_ret_info() {
 
         println!("Received event from RingBuf:");
         println!("  PID: {}", data.tid);
-        println!("  PC:  0x{:x}", data.pc);
+        println!("  PC:  0x{:x}", data.pc());
         println!("  SP:  0x{:x}", data.sp);
 
         assert_eq!(data.tid, target_pid, "RingBuf PID matches target PID");
 
-        assert!(data.pc > 0, "PC should be non-zero");
+        assert!(data.pc() > 0, "PC should be non-zero");
 
         assert!(data.sp > 0, "SP should be non-zero");
 

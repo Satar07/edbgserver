@@ -14,3 +14,8 @@ aya = { workspace = true, optional = true }
 
 [lib]
 path = "src/lib.rs"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = [
+    'cfg(bpf_target_arch, values("x86_64", "aarch64"))'
+] }

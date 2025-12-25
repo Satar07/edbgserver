@@ -49,7 +49,7 @@ impl BlockingEventLoop for EdbgEventLoop {
                             let ptr = item.as_ptr() as *const DataT;
                             let data = unsafe { std::ptr::read_unaligned(ptr) };
                             debug!("Received event: PID={}, TID={}, PC={:#x}, FA={:#x}, SRC={:?}",
-                                data.pid, data.tid, data.pc, data.fault_addr, data.event_source);
+                                data.pid, data.tid, data.pc(), data.fault_addr, data.event_source);
                             if let Some(b_pid) = target.bound_pid
                                 && data.pid != b_pid
                             {
@@ -74,15 +74,15 @@ impl BlockingEventLoop for EdbgEventLoop {
                             .find(|e| e.event_source == edbgserver_common::EdbgSource::Uprobe)
                             .or_else(|| pending_events.last());
                         if let Some(data) = best_event {
-                            info!("Event! PID: {}, TID: {}, PC: {:#x}", data.pid, data.tid, data.pc);
+                            info!("Event! PID: {}, TID: {}, PC: {:#x}", data.pid, data.tid, data.pc());
                             target.context = Some(*data);
-                            let stop_reason = target.determine_stop_reason(data.tid, data.pc, data.fault_addr);
+                            let stop_reason = target.determine_stop_reason(data.tid, data.pc(), data.fault_addr);
                             target.handle_trap();
                             return Ok(Event::TargetStopped(stop_reason));
                         } else {
                             log::warn!("Received events but all were kernel-space traps. Ignoring.");
                             for e in pending_events {
-                                log::debug!("Ignored artifact: PC={:#x}", e.pc);
+                                log::debug!("Ignored artifact: PC={:#x}", e.pc());
                             }
                         }
                     }

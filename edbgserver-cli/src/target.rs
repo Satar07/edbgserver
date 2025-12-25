@@ -24,19 +24,22 @@ use gdbstub::{
         },
     },
 };
+#[cfg(target_arch = "aarch64")]
 use gdbstub_arch::aarch64::{AArch64, reg::AArch64CoreRegs};
+#[cfg(target_arch = "x86_64")]
+use gdbstub_arch::x86::{X86_64_SSE, reg::X86_64CoreRegs};
 use log::{debug, trace, warn};
 use tokio::io::{Interest, unix::AsyncFd};
 
 use crate::target::multithread::ThreadAction;
 
+mod arch;
 mod auvx;
 mod breakpoint;
 mod execfile;
 mod host_io;
 mod memory_map;
 mod multithread;
-mod step;
 
 pub struct EdbgTarget {
     ebpf: Ebpf,
@@ -135,7 +138,10 @@ impl EdbgTarget {
 }
 
 impl Target for EdbgTarget {
+    #[cfg(target_arch = "aarch64")]
     type Arch = AArch64;
+    #[cfg(target_arch = "x86_64")]
+    type Arch = X86_64_SSE;
 
     type Error = anyhow::Error;
 
@@ -181,6 +187,7 @@ impl Target for EdbgTarget {
 }
 
 impl MultiThreadBase for EdbgTarget {
+    #[cfg(target_arch = "aarch64")]
     fn read_registers(
         &mut self,
         regs: &mut AArch64CoreRegs,
@@ -192,6 +199,45 @@ impl MultiThreadBase for EdbgTarget {
                 regs.pc = ctx.pc;
                 regs.sp = ctx.sp;
                 regs.cpsr = ctx.pstate as u32;
+                return Ok(());
+            } else {
+                debug!("Req regs for TID {} but context is for {}", tid, ctx.tid);
+            }
+        }
+        warn!(
+            "Requesting registers for TID {} but no matching context",
+            tid
+        );
+        debug!("last_context: {:?}", self.context);
+        Ok(())
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    fn read_registers(
+        &mut self,
+        regs: &mut X86_64CoreRegs,
+        tid: gdbstub::common::Tid,
+    ) -> TargetResult<(), Self> {
+        if let Some(ctx) = &self.context {
+            if !self.is_multi_thread || ctx.tid == tid.get() as u32 {
+                regs.regs[0] = ctx.rax;
+                regs.regs[1] = ctx.rbx;
+                regs.regs[2] = ctx.rcx;
+                regs.regs[3] = ctx.rdx;
+                regs.regs[4] = ctx.rsi;
+                regs.regs[5] = ctx.rdi;
+                regs.regs[6] = ctx.rbp;
+                regs.regs[7] = ctx.rsp;
+                regs.regs[8] = ctx.r8;
+                regs.regs[9] = ctx.r9;
+                regs.regs[10] = ctx.r10;
+                regs.regs[11] = ctx.r11;
+                regs.regs[12] = ctx.r12;
+                regs.regs[13] = ctx.r13;
+                regs.regs[14] = ctx.r14;
+                regs.regs[15] = ctx.r15;
+                regs.rip = ctx.rip;
+                regs.eflags = ctx.rflags as u32;
                 return Ok(());
             } else {
                 debug!("Req regs for TID {} but context is for {}", tid, ctx.tid);

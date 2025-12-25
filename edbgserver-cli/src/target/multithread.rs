@@ -101,7 +101,7 @@ impl MultiThreadResume for EdbgTarget {
                 }
                 ThreadAction::Step(signal) => {
                     info!("Single stepping thread {} with signal {:?}", tid, signal);
-                    self.single_step_thread(tid, self.context.unwrap().pc)?;
+                    self.single_step_thread(tid, self.context.unwrap().pc())?;
                     dispatch_signal(tid, signal.as_ref());
                 }
             }
