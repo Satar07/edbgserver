@@ -237,7 +237,7 @@ impl MultiThreadBase for EdbgTarget {
                 regs.regs[14] = ctx.r14;
                 regs.regs[15] = ctx.r15;
                 regs.rip = ctx.rip;
-                regs.eflags = ctx.rflags as u32;
+                regs.eflags = ctx.eflags as u32;
                 return Ok(());
             } else {
                 debug!("Req regs for TID {} but context is for {}", tid, ctx.tid);
