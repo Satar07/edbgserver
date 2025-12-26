@@ -302,6 +302,7 @@ impl EdbgTarget {
             target_pid,
             None,
         )?;
+        self.bound_pid = target_pid;
 
         self.init_probe_link_id = Some(link_id);
         Ok(())
@@ -325,7 +326,19 @@ impl EdbgTarget {
 
             // first event is the one we care about
             let first_event = captured_events.first().unwrap();
-            let target_pid = first_event.pid;
+            // if the target pid is specify and doesn't match, this will happen in namespace scenario (e.g WSL)
+            // we just map it to the our target pid
+            let target_pid = if let Some(target_pid) = self.bound_pid
+                && first_event.pid != target_pid
+            {
+                warn!(
+                    "Mapped PID: {} to specified target PID: {} (this may happen in namespace scenarios like WSL)",
+                    first_event.pid, target_pid
+                );
+                target_pid
+            } else {
+                first_event.pid
+            };
             let target_tid = first_event.tid;
             let trap_pc = first_event.pc();
 

@@ -28,7 +28,7 @@ use gdbstub::{
 use gdbstub_arch::aarch64::{AArch64, reg::AArch64CoreRegs};
 #[cfg(target_arch = "x86_64")]
 use gdbstub_arch::x86::{X86_64_SSE, reg::X86_64CoreRegs};
-use log::{debug, trace, warn};
+use log::{debug, error, trace, warn};
 use tokio::io::{Interest, unix::AsyncFd};
 
 use crate::target::multithread::ThreadAction;
@@ -264,13 +264,18 @@ impl MultiThreadBase for EdbgTarget {
         &mut self,
         start_addr: <Self::Arch as gdbstub::arch::Arch>::Usize,
         data: &mut [u8],
-        tid: gdbstub::common::Tid,
+        _tid: gdbstub::common::Tid,
     ) -> TargetResult<usize, Self> {
         use process_memory::{CopyAddress, TryIntoProcessHandle};
-        let handle = (tid.get() as i32).try_into_process_handle().map_err(|e| {
-            warn!("Failed to create process handle: {}", e);
-            TargetError::Io(e)
-        })?;
+        let handle = (self.get_pid().map_err(|_| {
+            error!("no pid");
+            TargetError::NonFatal
+        })? as i32)
+            .try_into_process_handle()
+            .map_err(|e| {
+                warn!("Failed to create process handle: {}", e);
+                TargetError::Io(e)
+            })?;
         match handle.copy_address(start_addr as usize, data) {
             Ok(_) => Ok(data.len()),
             Err(e) => {
@@ -284,13 +289,18 @@ impl MultiThreadBase for EdbgTarget {
         &mut self,
         start_addr: <Self::Arch as gdbstub::arch::Arch>::Usize,
         data: &[u8],
-        tid: gdbstub::common::Tid,
+        _tid: gdbstub::common::Tid,
     ) -> TargetResult<(), Self> {
         use process_memory::{PutAddress, TryIntoProcessHandle};
-        let handle = (tid.get() as i32).try_into_process_handle().map_err(|e| {
-            warn!("Failed to create process handle: {}", e);
-            TargetError::Io(e)
-        })?;
+        let handle = (self.get_pid().map_err(|_| {
+            error!("no pid");
+            TargetError::NonFatal
+        })? as i32)
+            .try_into_process_handle()
+            .map_err(|e| {
+                warn!("Failed to create process handle: {}", e);
+                TargetError::Io(e)
+            })?;
         match handle.put_address(start_addr as usize, data) {
             Ok(_) => Ok(()),
             Err(e) => {
