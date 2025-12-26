@@ -55,7 +55,7 @@ impl EdbgTarget {
     fn read_instruction(&self, pc: u64, tid: u32) -> Result<u32> {
         let mut buf = [0u8; 4];
         use process_memory::{CopyAddress, TryIntoProcessHandle};
-        let handle = (tid as i32).try_into_process_handle()?;
+        let handle = (self.get_pid()? as i32).try_into_process_handle()?;
         handle.copy_address(pc as usize, &mut buf)?;
         Ok(u32::from_le_bytes(buf))
     }
@@ -66,11 +66,16 @@ impl EdbgTarget {
         let code_byte = code.to_le_bytes();
         let cs = EdbgTarget::create_capstone()?;
         let insn = cs.disasm_count(&code_byte, current_pc, 1)?;
-        debug!("Disassembled instruction: {:?}", insn);
         if insn.is_empty() {
             bail!("Failed to disassemble instruction at {:#x}", current_pc);
         }
         let insn = insn.first().ok_or(anyhow!("Failed to get instruction"))?;
+        debug!(
+            "CalcNextPC {:#x}: {} {}",
+            current_pc,
+            insn.mnemonic().unwrap_or("???"),
+            insn.op_str().unwrap_or("???")
+        );
         let detail = cs.insn_detail(insn)?;
         let groups = detail.groups();
         let is_control_flow = groups.iter().any(|&g| {

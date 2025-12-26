@@ -41,9 +41,12 @@ pub struct DataT {
     pub rdx: u64,
     pub rsi: u64,
     pub rdi: u64,
+    pub orig_rax: u64,
     pub rip: u64,
-    pub rflags: u64,
+    pub cs: u64,
+    pub eflags: u64,
     pub rsp: u64,
+    pub ss: u64,
     pub fault_addr: u64,
     pub event_source: EdbgSource,
 }

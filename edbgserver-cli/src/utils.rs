@@ -56,7 +56,13 @@ fn gdb_sig_to_libc(sig: &Signal) -> Option<i32> {
 pub fn send_sigcont_to_thread(pid: u32, tid: u32) {
     debug!("Sending SIGCONT to pid {} tid {}", pid, tid);
     if let Err(e) = sys_tgkill(pid as i32, tid as i32, libc::SIGCONT) {
-        warn!("Failed to send SIGCONT to pid {} tid {}: {}", pid, tid, e);
+        warn!(
+            "Failed to send SIGCONT to pid {} tid {}: {}. fallback to send process",
+            pid, tid, e
+        );
+        if let Err(e) = sys_kill(pid as i32, libc::SIGCONT) {
+            warn!("Failed to send SIGCONT to process {}: {}", pid, e);
+        }
     }
 }
 
@@ -65,9 +71,15 @@ pub fn send_sig_to_thread(pid: u32, tid: u32, sig: &Signal) {
     if let Some(libc_sig) = gdb_sig_to_libc(sig) {
         if let Err(e) = sys_tgkill(pid as i32, tid as i32, libc_sig) {
             warn!(
-                "Failed to send {:?} (libc: {}) to tgid {} tid {}: {}",
+                "Failed to send {:?} (libc: {}) to tgid {} tid {}: {}. fallback to send process",
                 sig, libc_sig, pid, tid, e
             );
+            if let Err(e) = sys_kill(pid as i32, libc_sig) {
+                warn!(
+                    "Failed to send {:?} (libc: {}) to process {}: {}",
+                    sig, libc_sig, pid, e
+                );
+            }
         }
     } else {
         warn!(

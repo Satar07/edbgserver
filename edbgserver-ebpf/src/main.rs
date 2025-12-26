@@ -118,8 +118,11 @@ fn try_probe_callback(ctx: &ProbeContext) -> Result<i64, i64> {
             (*data_ptr).rdx = regs.rdx;
             (*data_ptr).rsi = regs.rsi;
             (*data_ptr).rdi = regs.rdi;
+            (*data_ptr).orig_rax = regs.orig_rax;
             (*data_ptr).rip = regs.rip;
-            (*data_ptr).rflags = regs.eflags;
+            (*data_ptr).cs = regs.cs;
+            (*data_ptr).eflags = regs.eflags;
+            (*data_ptr).ss = regs.ss;
             (*data_ptr).rsp = regs.rsp;
             (*data_ptr).fault_addr = regs.rip;
             (*data_ptr).event_source = edbgserver_common::EdbgSource::Uprobe;
@@ -217,8 +220,11 @@ fn try_perf_callback(ctx: &PerfEventContext) -> Result<i64, i64> {
             (*data_ptr).rdx = regs.rdx;
             (*data_ptr).rsi = regs.rsi;
             (*data_ptr).rdi = regs.rdi;
+            (*data_ptr).orig_rax = regs.orig_rax;
             (*data_ptr).rip = regs.rip;
-            (*data_ptr).rflags = regs.eflags;
+            (*data_ptr).cs = regs.cs;
+            (*data_ptr).eflags = regs.eflags;
+            (*data_ptr).ss = regs.ss;
             (*data_ptr).rsp = regs.rsp;
             (*data_ptr).fault_addr = (*ctx.ctx).addr;
             (*data_ptr).event_source = edbgserver_common::EdbgSource::PerfEvent;

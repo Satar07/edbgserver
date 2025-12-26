@@ -3,12 +3,12 @@
         "rust-analyzer": {
             "initialization_options": {
                 "check": {
-                    "extraArgs": ["--target", "x86_64-unknown-linux-musl"],
+                    "extraArgs": ["--target", "aarch64-unknown-linux-musl"],
                 },
                 "cargo": {
-                    "target": "x86_64-unknown-linux-musl",
+                    "target": "aarch64-unknown-linux-musl",
                     "extraEnv": {
-                        "CC_x86_64_unknown_linux_musl": "x86_64-linux-musl-gcc",
+                        "CC_aarch64_unknown_linux_musl": "aarch64-linux-musl-gcc",
                     },
                 },
             },
