@@ -1,0 +1,17 @@
+{
+    "lsp": {
+        "rust-analyzer": {
+            "initialization_options": {
+                "check": {
+                    "extraArgs": ["--target", "aarch64-unknown-linux-musl"],
+                },
+                "cargo": {
+                    "target": "aarch64-unknown-linux-musl",
+                    "extraEnv": {
+                        "CC_aarch64_unknown_linux_musl": "aarch64-linux-musl-gcc",
+                    },
+                },
+            },
+        },
+    },
+}
