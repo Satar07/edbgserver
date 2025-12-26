@@ -50,18 +50,14 @@ impl BlockingEventLoop for EdbgEventLoop {
                             let data = unsafe { std::ptr::read_unaligned(ptr) };
                             debug!("Received event: PID={}, TID={}, PC={:#x}, FA={:#x}, SRC={:?}",
                                 data.pid, data.tid, data.pc(), data.fault_addr, data.event_source);
-                            if let Some(b_pid) = target.bound_pid
-                                && data.pid != b_pid
-                            {
-                                continue;
-                            }
                             if let Some(b_tid) = target.bound_tid
                                 && !target.is_multi_thread
                                 && data.tid != b_tid
                             {
                                 continue;
                             }
-                            pending_events.push(data);
+                            // dont check the pid
+                            pending_events.push(DataT{pid: target.bound_pid.unwrap(), ..data});
                         }
                         guard.clear_ready();
                         if pending_events.is_empty() {

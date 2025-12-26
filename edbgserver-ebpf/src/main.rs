@@ -32,6 +32,7 @@ pub fn probe_callback(ctx: ProbeContext) -> i64 {
     }
 }
 
+// #[cfg(bpf_target_arch = "aarch64")]
 #[cfg(any(bpf_target_arch = "aarch64", debug_assertions))]
 fn try_probe_callback(ctx: &ProbeContext) -> Result<i64, i64> {
     debug!(ctx, "entered probe callback");
@@ -78,6 +79,7 @@ fn try_probe_callback(ctx: &ProbeContext) -> Result<i64, i64> {
 }
 
 #[cfg(bpf_target_arch = "x86_64")]
+// #[cfg(any(bpf_target_arch = "x86_64", debug_assertions))]
 fn try_probe_callback(ctx: &ProbeContext) -> Result<i64, i64> {
     debug!(ctx, "entered probe callback");
     let current_tid = bpf_get_current_pid_tgid() as u32;
@@ -145,6 +147,7 @@ pub fn perf_callback(ctx: PerfEventContext) -> i64 {
     }
 }
 
+// #[cfg(bpf_target_arch = "aarch64")]
 #[cfg(any(bpf_target_arch = "aarch64", debug_assertions))]
 fn try_perf_callback(ctx: &PerfEventContext) -> Result<i64, i64> {
     debug!(ctx, "entered perf callback");
@@ -183,6 +186,7 @@ fn try_perf_callback(ctx: &PerfEventContext) -> Result<i64, i64> {
 }
 
 #[cfg(bpf_target_arch = "x86_64")]
+// #[cfg(any(bpf_target_arch = "x86_64", debug_assertions))]
 fn try_perf_callback(ctx: &PerfEventContext) -> Result<i64, i64> {
     debug!(ctx, "entered perf callback");
     let current_tid = bpf_get_current_pid_tgid() as u32;
