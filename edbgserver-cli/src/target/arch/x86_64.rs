@@ -10,8 +10,8 @@ use log::{debug, error, info, trace, warn};
 use crate::target::EdbgTarget;
 
 impl EdbgTarget {
-    pub fn single_step_thread(&mut self, tid: u32, curr_pc: u64) -> Result<()> {
-        debug!("TID: {}, Current PC: {:#x}", tid, curr_pc);
+    pub fn single_step_thread(&mut self, curr_pc: u64) -> Result<()> {
+        debug!("Current PC: {:#x}", curr_pc);
 
         let next_pc = self
             .calculation_next_pc(curr_pc)
@@ -47,7 +47,7 @@ impl EdbgTarget {
                     "Skipping un-attachable instruction at {:#x}, recursively stepping...",
                     next_pc
                 );
-                self.single_step_thread(tid, next_pc)?;
+                self.single_step_thread(next_pc)?;
             }
         }
         Ok(())

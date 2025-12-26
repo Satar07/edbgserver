@@ -9,9 +9,9 @@ use log::{debug, error, info};
 use crate::target::EdbgTarget;
 
 impl EdbgTarget {
-    pub fn single_step_thread(&mut self, tid: u32, curr_pc: u64) -> Result<()> {
+    pub fn single_step_thread(&mut self, curr_pc: u64) -> Result<()> {
         let next_pc = self
-            .calculation_next_pc(curr_pc, tid)
+            .calculation_next_pc(curr_pc)
             .map_err(|e| anyhow!("Failed to calculate next PC for single step: {}", e))?;
         debug!("Next PC calculated: {:#x}", next_pc);
         if self.active_sw_breakpoints.contains_key(&next_pc) {
@@ -25,7 +25,7 @@ impl EdbgTarget {
             Err(e) => {
                 let (is_svc, insn_len) = {
                     let cs = EdbgTarget::create_capstone()?;
-                    let code = self.read_instruction(next_pc, tid)?.to_le_bytes();
+                    let code = self.read_instruction(next_pc)?.to_le_bytes();
                     let insns = cs.disasm_count(&code, next_pc, 1)?;
                     let insn = insns.first().ok_or(anyhow!("failed to get first insn"))?;
 
@@ -35,7 +35,7 @@ impl EdbgTarget {
                 };
                 if is_svc {
                     info!("Next instruction is SVC, step over");
-                    self.single_step_thread(tid, curr_pc + insn_len)?;
+                    self.single_step_thread(curr_pc + insn_len)?;
                 } else {
                     return Err(e);
                 }
@@ -52,7 +52,7 @@ impl EdbgTarget {
             .build()
             .map_err(|e| anyhow!("Failed to create Capstone instance: {}", e))
     }
-    fn read_instruction(&self, pc: u64, tid: u32) -> Result<u32> {
+    fn read_instruction(&self, pc: u64) -> Result<u32> {
         let mut buf = [0u8; 4];
         use process_memory::{CopyAddress, TryIntoProcessHandle};
         let handle = (self.get_pid()? as i32).try_into_process_handle()?;
@@ -60,9 +60,9 @@ impl EdbgTarget {
         Ok(u32::from_le_bytes(buf))
     }
 
-    fn calculation_next_pc(&self, current_pc: u64, tid: u32) -> Result<u64> {
+    fn calculation_next_pc(&self, current_pc: u64) -> Result<u64> {
         debug!("Calculating next PC from current PC: {:#x}", current_pc);
-        let code = self.read_instruction(current_pc, tid)?;
+        let code = self.read_instruction(current_pc)?;
         let code_byte = code.to_le_bytes();
         let cs = EdbgTarget::create_capstone()?;
         let insn = cs.disasm_count(&code_byte, current_pc, 1)?;
