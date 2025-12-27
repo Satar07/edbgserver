@@ -11,7 +11,7 @@ use log::{debug, warn};
 use serial_test::serial;
 
 fn init_edbg_server() -> aya::Ebpf {
-    env_logger::try_init().ok();
+    pretty_env_logger::try_init().ok();
     let rlim = libc::rlimit {
         rlim_cur: libc::RLIM_INFINITY,
         rlim_max: libc::RLIM_INFINITY,

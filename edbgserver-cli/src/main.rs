@@ -82,7 +82,7 @@ struct Cli {
 #[tokio::main]
 async fn main() -> Result<()> {
     debug!("start edbgserver at pid: {}", std::process::id());
-    env_logger::init();
+    pretty_env_logger::init();
     let opt = Cli::parse();
     let (init_uprobe_file_path, init_uprobe_file_offset) =
         resolve_target::resolve_target(&opt.target, opt.package.as_deref(), opt.break_point)?;
@@ -145,7 +145,7 @@ async fn main() -> Result<()> {
 }
 
 fn init_aya() -> aya::Ebpf {
-    env_logger::try_init().ok();
+    pretty_env_logger::try_init().ok();
     if let Err(e) = setrlimit(
         Resource::RLIMIT_MEMLOCK,
         resource::RLIM_INFINITY,

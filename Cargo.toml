@@ -35,7 +35,7 @@ anyhow = { version = "1", default-features = false }
 cargo_metadata = { version = "0.23.0", default-features = false }
 
 clap = { version = "4.5.20", default-features = false, features = ["std"] }
-env_logger = { version = "0.11.5", default-features = false }
+pretty_env_logger  = { version = "0.4", default-features = false }
 libc = { version = "0.2.159", default-features = false }
 log = { version = "0.4.22", default-features = false }
 tokio = { version = "1.40.0", features = ["full"] }
@@ -44,6 +44,11 @@ which = { version = "6.0.0", default-features = false }
 [profile.dev]
 debug = true
 opt-level = 0
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
 
 [profile.release.package.edbgserver-ebpf]
 debug = 2
