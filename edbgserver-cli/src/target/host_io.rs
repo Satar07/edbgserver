@@ -14,6 +14,7 @@ use gdbstub::target::ext::host_io::{
     HostIoPwrite, HostIoPwriteOps, HostIoReadlink, HostIoReadlinkOps, HostIoResult, HostIoStat,
     HostIoUnlink, HostIoUnlinkOps,
 };
+use log::debug;
 
 use crate::target::EdbgTarget;
 
@@ -86,6 +87,7 @@ impl HostIoOpen for EdbgTarget {
         }
 
         options.mode(mode.bits());
+
         match options.open(path) {
             Ok(file) => {
                 let fd = self.next_host_io_fd;
@@ -94,6 +96,10 @@ impl HostIoOpen for EdbgTarget {
                     .checked_add(1)
                     .ok_or(HostIoError::Errno(HostIoErrno::EMFILE))?;
                 self.host_io_files.insert(fd, file);
+                debug!(
+                    "Host IO Open: filename={:?}, flags={:?}, mode={:?} => fd={}",
+                    path, flags, mode, fd
+                );
                 Ok(fd)
             }
             Err(e) => Err(HostIoError::from(e)),
@@ -103,6 +109,7 @@ impl HostIoOpen for EdbgTarget {
 
 impl HostIoClose for EdbgTarget {
     fn close(&mut self, fd: u32) -> HostIoResult<(), Self> {
+        debug!("Host IO Close: fd={}", fd);
         match self.host_io_files.remove(&fd) {
             Some(_) => Ok(()),
             None => Err(HostIoError::Errno(HostIoErrno::EBADF)),
@@ -118,6 +125,10 @@ impl HostIoPread for EdbgTarget {
         offset: u64,
         buf: &mut [u8],
     ) -> HostIoResult<usize, Self> {
+        debug!(
+            "Host IO Pread: fd={}, count={}, offset={}",
+            fd, count, offset
+        );
         if let Some(file) = self.host_io_files.get(&fd) {
             let len = std::cmp::min(count, buf.len());
             match file.read_at(&mut buf[..len], offset) {
@@ -137,6 +148,12 @@ impl HostIoPwrite for EdbgTarget {
         offset: <Self::Arch as gdbstub::arch::Arch>::Usize,
         data: &[u8],
     ) -> HostIoResult<<Self::Arch as gdbstub::arch::Arch>::Usize, Self> {
+        debug!(
+            "Host IO Pwrite: fd={}, offset={}, data_len={}",
+            fd,
+            offset,
+            data.len()
+        );
         if let Some(file) = self.host_io_files.get(&fd) {
             match file.write_at(data, offset) {
                 Ok(n) => Ok(n as <Self::Arch as gdbstub::arch::Arch>::Usize),
@@ -150,6 +167,7 @@ impl HostIoPwrite for EdbgTarget {
 
 impl HostIoFstat for EdbgTarget {
     fn fstat(&mut self, fd: u32) -> HostIoResult<HostIoStat, Self> {
+        debug!("Host IO Fstat: fd={}", fd);
         if let Some(file) = self.host_io_files.get(&fd) {
             match file.metadata() {
                 Ok(m) => Ok(HostIoStat {
@@ -178,6 +196,7 @@ impl HostIoFstat for EdbgTarget {
 impl HostIoReadlink for EdbgTarget {
     fn readlink(&mut self, filename: &[u8], buf: &mut [u8]) -> HostIoResult<usize, Self> {
         let path = Path::new(OsStr::from_bytes(filename));
+        debug!("Host IO Readlink: filename={:?}", path);
         match std::fs::read_link(path) {
             Ok(target_path) => {
                 let bytes = target_path.as_os_str().as_bytes();
@@ -193,6 +212,7 @@ impl HostIoReadlink for EdbgTarget {
 impl HostIoUnlink for EdbgTarget {
     fn unlink(&mut self, filename: &[u8]) -> HostIoResult<(), Self> {
         let path = Path::new(OsStr::from_bytes(filename));
+        debug!("Host IO Unlink: filename={:?}", path);
         match std::fs::remove_file(path) {
             Ok(_) => Ok(()),
             Err(e) => Err(HostIoError::from(e)),
