@@ -7,7 +7,7 @@ use clap::{
     },
 };
 use clap_num::maybe_hex;
-use gdbstub::stub::{DisconnectReason, GdbStub};
+use gdbstub::stub::{DisconnectReason, GdbStubBuilder};
 use log::{debug, error, info, warn};
 use nix::sys::resource::{self, Resource, setrlimit};
 use tokio::net::TcpListener;
@@ -18,6 +18,7 @@ mod event;
 mod resolve_target;
 mod target;
 mod utils;
+mod virtual_file;
 
 fn get_styles() -> Styles {
     Styles::styled()
@@ -121,7 +122,9 @@ async fn main() -> Result<()> {
     };
 
     let connection = TokioConnection::new(stream);
-    let gdb = GdbStub::new(connection);
+    let gdb = GdbStubBuilder::new(connection)
+        .packet_buffer_size(4096)
+        .build()?;
 
     // main run
     let result =

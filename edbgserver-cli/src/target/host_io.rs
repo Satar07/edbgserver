@@ -1,12 +1,4 @@
-use std::{
-    ffi::OsStr,
-    fs::OpenOptions,
-    os::unix::{
-        ffi::OsStrExt,
-        fs::{FileExt, MetadataExt, OpenOptionsExt},
-    },
-    path::Path,
-};
+use std::{ffi::OsStr, os::unix::ffi::OsStrExt, path::Path};
 
 use gdbstub::target::ext::host_io::{
     HostIo, HostIoClose, HostIoCloseOps, HostIoErrno, HostIoError, HostIoFstat, HostIoFstatOps,
@@ -16,39 +8,33 @@ use gdbstub::target::ext::host_io::{
 };
 use log::debug;
 
-use crate::target::EdbgTarget;
+use crate::{target::EdbgTarget, virtual_file::VirtualFile};
 
 impl HostIo for EdbgTarget {
     #[inline(always)]
     fn support_open(&mut self) -> Option<HostIoOpenOps<'_, Self>> {
         Some(self)
     }
-
     #[inline(always)]
     fn support_close(&mut self) -> Option<HostIoCloseOps<'_, Self>> {
         Some(self)
     }
-
     #[inline(always)]
     fn support_pread(&mut self) -> Option<HostIoPreadOps<'_, Self>> {
         Some(self)
     }
-
     #[inline(always)]
     fn support_pwrite(&mut self) -> Option<HostIoPwriteOps<'_, Self>> {
         Some(self)
     }
-
     #[inline(always)]
     fn support_fstat(&mut self) -> Option<HostIoFstatOps<'_, Self>> {
         Some(self)
     }
-
     #[inline(always)]
     fn support_readlink(&mut self) -> Option<HostIoReadlinkOps<'_, Self>> {
         Some(self)
     }
-
     #[inline(always)]
     fn support_unlink(&mut self) -> Option<HostIoUnlinkOps<'_, Self>> {
         Some(self)
@@ -62,44 +48,16 @@ impl HostIoOpen for EdbgTarget {
         flags: HostIoOpenFlags,
         mode: HostIoOpenMode,
     ) -> HostIoResult<u32, Self> {
-        let path = Path::new(OsStr::from_bytes(filename));
-        let mut options = OpenOptions::new();
-        if flags.contains(HostIoOpenFlags::O_RDONLY) {
-            options.read(true);
-        }
-        if flags.contains(HostIoOpenFlags::O_WRONLY) {
-            options.write(true);
-        }
-        if flags.contains(HostIoOpenFlags::O_RDWR) {
-            options.read(true).write(true);
-        }
-        if flags.contains(HostIoOpenFlags::O_CREAT) {
-            options.create(true);
-        }
-        if flags.contains(HostIoOpenFlags::O_EXCL) {
-            options.create_new(true);
-        }
-        if flags.contains(HostIoOpenFlags::O_TRUNC) {
-            options.truncate(true);
-        }
-        if flags.contains(HostIoOpenFlags::O_APPEND) {
-            options.append(true);
-        }
-
-        options.mode(mode.bits());
-
-        match options.open(path) {
-            Ok(file) => {
+        match VirtualFile::open(filename, flags, mode) {
+            Ok(vfile) => {
                 let fd = self.next_host_io_fd;
-                self.next_host_io_fd = self
-                    .next_host_io_fd
+                self.next_host_io_fd = fd
                     .checked_add(1)
                     .ok_or(HostIoError::Errno(HostIoErrno::EMFILE))?;
-                self.host_io_files.insert(fd, file);
-                debug!(
-                    "Host IO Open: filename={:?}, flags={:?}, mode={:?} => fd={}",
-                    path, flags, mode, fd
-                );
+
+                self.host_io_files.insert(fd, vfile);
+
+                debug!("HostIo: Opened fd={} (flags={:?})", fd, flags);
                 Ok(fd)
             }
             Err(e) => Err(HostIoError::from(e)),
@@ -109,10 +67,11 @@ impl HostIoOpen for EdbgTarget {
 
 impl HostIoClose for EdbgTarget {
     fn close(&mut self, fd: u32) -> HostIoResult<(), Self> {
-        debug!("Host IO Close: fd={}", fd);
-        match self.host_io_files.remove(&fd) {
-            Some(_) => Ok(()),
-            None => Err(HostIoError::Errno(HostIoErrno::EBADF)),
+        if self.host_io_files.remove(&fd).is_some() {
+            debug!("HostIo: Closed fd={}", fd);
+            Ok(())
+        } else {
+            Err(HostIoError::Errno(HostIoErrno::EBADF))
         }
     }
 }
@@ -125,97 +84,52 @@ impl HostIoPread for EdbgTarget {
         offset: u64,
         buf: &mut [u8],
     ) -> HostIoResult<usize, Self> {
-        debug!(
-            "Host IO Pread: fd={}, count={}, offset={}",
-            fd, count, offset
-        );
-        if let Some(file) = self.host_io_files.get(&fd) {
-            let len = std::cmp::min(count, buf.len());
-            match file.read_at(&mut buf[..len], offset) {
-                Ok(n) => Ok(n),
-                Err(e) => Err(HostIoError::from(e)),
-            }
-        } else {
-            Err(HostIoError::Errno(HostIoErrno::EBADF))
-        }
+        let file = self
+            .host_io_files
+            .get_mut(&fd)
+            .ok_or(HostIoError::Errno(HostIoErrno::EBADF))?;
+
+        let len = std::cmp::min(count, buf.len());
+        file.read_at(offset, &mut buf[..len])
+            .map_err(HostIoError::from)
     }
 }
 
 impl HostIoPwrite for EdbgTarget {
-    fn pwrite(
-        &mut self,
-        fd: u32,
-        offset: <Self::Arch as gdbstub::arch::Arch>::Usize,
-        data: &[u8],
-    ) -> HostIoResult<<Self::Arch as gdbstub::arch::Arch>::Usize, Self> {
-        debug!(
-            "Host IO Pwrite: fd={}, offset={}, data_len={}",
-            fd,
-            offset,
-            data.len()
-        );
-        if let Some(file) = self.host_io_files.get(&fd) {
-            match file.write_at(data, offset) {
-                Ok(n) => Ok(n as <Self::Arch as gdbstub::arch::Arch>::Usize),
-                Err(e) => Err(HostIoError::from(e)),
-            }
-        } else {
-            Err(HostIoError::Errno(HostIoErrno::EBADF))
-        }
+    fn pwrite(&mut self, fd: u32, offset: u64, data: &[u8]) -> HostIoResult<u64, Self> {
+        let file = self
+            .host_io_files
+            .get_mut(&fd)
+            .ok_or(HostIoError::Errno(HostIoErrno::EBADF))?;
+
+        file.write_at(offset, data).map_err(HostIoError::from)
     }
 }
 
 impl HostIoFstat for EdbgTarget {
     fn fstat(&mut self, fd: u32) -> HostIoResult<HostIoStat, Self> {
-        debug!("Host IO Fstat: fd={}", fd);
-        if let Some(file) = self.host_io_files.get(&fd) {
-            match file.metadata() {
-                Ok(m) => Ok(HostIoStat {
-                    st_dev: m.dev() as u32,
-                    st_ino: m.ino() as u32,
-                    st_mode: HostIoOpenMode::from_bits_truncate(m.mode()),
-                    st_nlink: m.nlink() as u32,
-                    st_uid: m.uid(),
-                    st_gid: m.gid(),
-                    st_rdev: m.rdev() as u32,
-                    st_size: m.size(),
-                    st_blksize: m.blksize(),
-                    st_blocks: m.blocks(),
-                    st_atime: m.atime() as u32,
-                    st_mtime: m.mtime() as u32,
-                    st_ctime: m.ctime() as u32,
-                }),
-                Err(e) => Err(HostIoError::from(e)),
-            }
-        } else {
-            Err(HostIoError::Errno(HostIoErrno::EBADF))
-        }
+        let file = self
+            .host_io_files
+            .get(&fd)
+            .ok_or(HostIoError::Errno(HostIoErrno::EBADF))?;
+
+        file.stat().map_err(HostIoError::from)
     }
 }
 
 impl HostIoReadlink for EdbgTarget {
     fn readlink(&mut self, filename: &[u8], buf: &mut [u8]) -> HostIoResult<usize, Self> {
         let path = Path::new(OsStr::from_bytes(filename));
-        debug!("Host IO Readlink: filename={:?}", path);
-        match std::fs::read_link(path) {
-            Ok(target_path) => {
-                let bytes = target_path.as_os_str().as_bytes();
-                let len = std::cmp::min(bytes.len(), buf.len());
-                buf[..len].copy_from_slice(&bytes[..len]);
-                Ok(len)
-            }
-            Err(e) => Err(HostIoError::from(e)),
-        }
+        let target = std::fs::read_link(path).map_err(HostIoError::from)?;
+        let bytes = target.as_os_str().as_bytes();
+        let len = std::cmp::min(bytes.len(), buf.len());
+        buf[..len].copy_from_slice(&bytes[..len]);
+        Ok(len)
     }
 }
 
 impl HostIoUnlink for EdbgTarget {
     fn unlink(&mut self, filename: &[u8]) -> HostIoResult<(), Self> {
-        let path = Path::new(OsStr::from_bytes(filename));
-        debug!("Host IO Unlink: filename={:?}", path);
-        match std::fs::remove_file(path) {
-            Ok(_) => Ok(()),
-            Err(e) => Err(HostIoError::from(e)),
-        }
+        std::fs::remove_file(Path::new(OsStr::from_bytes(filename))).map_err(HostIoError::from)
     }
 }

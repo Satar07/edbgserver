@@ -23,6 +23,25 @@ Due to current eBPF subsystem limitations, the following behaviors are not yet s
 - **Thread Isolation:** Running/stepping a specific single thread independently.
 - **APK-mmaped Breakpoints:** Adding `uprobe` breakpoints to `.so` files that are directly `mmap`\-ed from an APK (potential for future resolution).
 
+## Usage
+
+```
+pwndbg> set osabi GNU/Linux
+pwndbg> target remote :3333
+```
+
+or maybe:
+
+```
+mkdir -p ./android_sysroot/system
+cd ./android_sysroot
+
+adb pull /system/lib64 system/lib64
+adb pull /system/bin system/bin
+adb pull /apex apex
+(gdb) set sysroot ~/android_sysroot
+```
+
 ## Prerequisites
 
 1. install rustup: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`

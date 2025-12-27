@@ -38,6 +38,7 @@ mod auvx;
 mod breakpoint;
 mod execfile;
 mod host_io;
+mod libraries;
 mod memory_map;
 mod multithread;
 
@@ -57,7 +58,7 @@ pub struct EdbgTarget {
     exec_path: Option<PathBuf>,
     pub bound_pid: Option<u32>,
     pub bound_tid: Option<u32>,
-    host_io_files: HashMap<u32, std::fs::File>,
+    host_io_files: HashMap<u32, crate::virtual_file::VirtualFile>,
     next_host_io_fd: u32,
     pub is_multi_thread: bool,
 }
@@ -182,6 +183,13 @@ impl Target for EdbgTarget {
 
     #[inline(always)]
     fn support_auxv(&mut self) -> Option<gdbstub::target::ext::auxv::AuxvOps<'_, Self>> {
+        Some(self)
+    }
+
+    #[inline(always)]
+    fn support_libraries_svr4(
+        &mut self,
+    ) -> Option<gdbstub::target::ext::libraries::LibrariesSvr4Ops<'_, Self>> {
         Some(self)
     }
 }

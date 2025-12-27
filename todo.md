@@ -1,3 +1,2 @@
-- feat: attach support
-- feat: x64 arch support
 - fix: use syscall to get pc when stopped (also need update context)
+- fix: libraries load elf (dynamic segment resolve)
