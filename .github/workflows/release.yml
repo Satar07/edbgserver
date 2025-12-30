@@ -23,8 +23,10 @@ jobs:
                 include:
                     - target: x86_64-unknown-linux-musl
                       arch: x86_64
+                      musl_cc: x86_64-linux-musl-cross
                     - target: aarch64-unknown-linux-musl
                       arch: aarch64
+                      musl_cc: aarch64-linux-musl-cross
 
         steps:
             # 1. Checkout source code
@@ -44,13 +46,34 @@ jobs:
               with:
                   targets: ${{ matrix.target }}
 
-            # 4. Install LLVM (Project requirement 5)
+            # 4. Install LLVM
             # Required for bpf-linker and compiling eBPF
             - name: Install LLVM
               run: sudo apt-get update && sudo apt-get install -y llvm clang
 
-            # 5. Cache Cargo dependencies
-            # This significantly speeds up the workflow by caching bpf-linker and cargo-zigbuild
+            # 5. Install Musl Cross Toolchain
+            # Replaces cargo-zigbuild. Downloads the compiler specified in your config.
+            - name: Install Musl Toolchain
+              run: |
+                  # 下载对应的 musl 交叉编译工具链
+                  wget "https://musl.cc/${{ matrix.musl_cc }}.tgz" -O toolchain.tgz
+
+                  # 解压
+                  tar -xf toolchain.tgz
+
+                  # 将 bin 目录添加到 GitHub Actions 的 PATH 中
+                  # 这样后续 cargo 调用 linker 时就能找到 (例如 aarch64-linux-musl-gcc)
+                  echo "$(pwd)/${{ matrix.musl_cc }}/bin" >> $GITHUB_PATH
+
+            - name: Verify Toolchain
+              run: |
+                  if [[ "${{ matrix.arch }}" == "aarch64" ]]; then
+                    aarch64-linux-musl-gcc --version
+                  else
+                    x86_64-linux-musl-gcc --version
+                  fi
+
+            # 6. Cache Cargo dependencies
             - name: Cache Cargo tools
               uses: actions/cache@v4
               with:
@@ -59,47 +82,26 @@ jobs:
                       ~/.cargo/registry/index/
                       ~/.cargo/registry/cache/
                       ~/.cargo/git/db/
-                  key: ${{ runner.os }}-cargo-tools-${{ hashFiles('**/Cargo.lock') }}
-                  restore-keys: |
-                      ${{ runner.os }}-cargo-tools-
+                  key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-            # 6. Install bpf-linker (Project requirement 7)
+            # 7. Install bpf-linker
             - name: Install bpf-linker
               run: |
                   if ! command -v bpf-linker &> /dev/null; then
                     cargo install bpf-linker
                   fi
 
-            # 7. Install cargo-zigbuild (Project requirement 3 & Build command)
-            # This tool simplifies cross-compilation using Zig
-            - name: Install cargo-zigbuild
-              run: |
-                  if ! command -v cargo-zigbuild &> /dev/null; then
-                    cargo install cargo-zigbuild
-                  fi
-
-            # 8. Install Zig (Implicit requirement for cargo-zigbuild)
-            # cargo-zigbuild needs the actual zig binary.
-            # We use python's pip to install a managed version, or let cargo-zigbuild handle it.
-            # Here we explicitly install ziglang via pip for reliability.
-            - name: Install Zig
-              uses: goto-bus-stop/setup-zig@v2
-              with:
-                  version: 0.13.0 # Or specific version required by project
-
-            # 9. Build the project
-            # Uses the command specified in "Build & Run" section
+            # 8. Build the project
             - name: Build Binary
-              run: cargo zigbuild --release --target ${{ matrix.target }}
+              run: cargo build --release --target ${{ matrix.target }}
 
-            # 10. Prepare artifact
-            # Renames the binary to include the architecture (e.g., edbgserver-x86_64)
+            # 9. Prepare artifact
             - name: Rename and Move Binary
               run: |
                   mkdir -p dist
                   cp target/${{ matrix.target }}/release/${{ env.BINARY_NAME }} dist/${{ env.BINARY_NAME }}-${{ matrix.arch }}
 
-            # 11. Upload Artifact to GitHub Actions Summary
+            # 10. Upload Artifact to GitHub Actions Summary
             - name: Upload Artifact
               uses: actions/upload-artifact@v4
               with:
