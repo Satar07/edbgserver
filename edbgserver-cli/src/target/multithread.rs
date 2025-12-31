@@ -1,4 +1,4 @@
-use std::{collections::HashSet, ffi::OsStr, num::NonZero, os::unix::ffi::OsStrExt, process};
+use std::{ffi::OsStr, num::NonZero, os::unix::ffi::OsStrExt, process};
 
 use anyhow::{Result, bail};
 use gdbstub::{
@@ -18,7 +18,7 @@ use procfs::process::Process;
 
 use crate::{
     target::EdbgTarget,
-    utils::{send_sig_to_process, send_sig_to_thread, send_sigcont_to_thread},
+    utils::{send_sig_to_process, send_sig_to_thread, send_sigcont_to_process},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -88,7 +88,7 @@ impl MultiThreadResume for EdbgTarget {
             if let Some(sig) = signal {
                 send_sig_to_thread(target_pid, tid, sig);
             } else {
-                send_sigcont_to_thread(target_pid, tid);
+                send_sigcont_to_process(target_pid);
             }
         };
 
@@ -111,21 +111,8 @@ impl MultiThreadResume for EdbgTarget {
             debug!("Scheduler locking is enabled; not continuing other threads");
             return Ok(());
         }
-
-        let handled_tids: HashSet<u32> = self
-            .resume_actions
-            .iter()
-            .map(|(tid, _)| tid.get() as u32)
-            .collect();
-
-        self.get_active_threads()?
-            .iter()
-            .map(|t| t.get() as u32)
-            .filter(|tid| !handled_tids.contains(tid))
-            .for_each(|tid| {
-                debug!("Continuing thread {} (implicit)", tid);
-                send_sigcont_to_thread(target_pid, tid);
-            });
+        debug!("Continuing process {} implicitly", target_pid);
+        send_sigcont_to_process(target_pid);
         Ok(())
     }
 }

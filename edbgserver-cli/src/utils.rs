@@ -51,18 +51,11 @@ fn gdb_sig_to_libc(sig: &Signal) -> Option<i32> {
 }
 
 /// if the disposition of the signal is "stop", "continue", or"terminate",
-/// this action will affect the whole process. (that means it don't work :(
-/// please someone tell me how to solve it...
-pub fn send_sigcont_to_thread(pid: u32, tid: u32) {
-    debug!("Sending SIGCONT to pid {} tid {}", pid, tid);
-    if let Err(e) = sys_tgkill(pid as i32, tid as i32, libc::SIGCONT) {
-        warn!(
-            "Failed to send SIGCONT to pid {} tid {}: {}. fallback to send process",
-            pid, tid, e
-        );
-        if let Err(e) = sys_kill(pid as i32, libc::SIGCONT) {
-            warn!("Failed to send SIGCONT to process {}: {}", pid, e);
-        }
+/// this action will affect the whole process.
+pub fn send_sigcont_to_process(pid: u32) {
+    debug!("Sending SIGCONT to pid {} ", pid);
+    if let Err(e) = sys_kill(pid as i32, libc::SIGCONT) {
+        warn!("Failed to send SIGCONT to process {}: {}", pid, e);
     }
 }
 
