@@ -510,7 +510,7 @@ impl EdbgTarget {
             }
         }
 
-        debug!("stop reason fallback to SIGSTOP for TID: {}", tid);
+        warn!("stop reason fallback to SIGSTOP for TID: {}", tid);
         MultiThreadStopReason::SignalWithThread {
             tid,
             signal: gdbstub::common::Signal::SIGSTOP,

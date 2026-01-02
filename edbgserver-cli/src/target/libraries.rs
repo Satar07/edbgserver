@@ -2,7 +2,7 @@ use std::{cmp::min, io::Read, iter};
 
 use anyhow::{Result, anyhow};
 use gdbstub::target::{TargetResult, ext::libraries::LibrariesSvr4};
-use log::{debug, error};
+use log::{debug, error, trace};
 use tagu::{build, prelude::*};
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
@@ -218,7 +218,7 @@ impl LibrariesSvr4 for EdbgTarget {
                     }
                     match self.read_struct::<LinkMap>(next_link_map) {
                         Ok(map) => {
-                            debug!("Read link_map at {:#x}: {:?}", next_link_map, map);
+                            trace!("Read link_map at {:#x}: {:?}", next_link_map, map);
                             let current_addr = next_link_map;
                             next_link_map = map.l_next;
                             Some((current_addr, map))

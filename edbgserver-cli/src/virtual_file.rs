@@ -93,6 +93,7 @@ fn filter_maps_content(content: &str) -> String {
         let is_infra_lib = line.contains("/libc.so")
             || line.contains("/libm.so")
             || line.contains("/libdl.so")
+            || line.contains("/libart.so")
             || line.contains("linker");
 
         let is_exec = line.contains(" r-xp ");

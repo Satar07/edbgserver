@@ -81,7 +81,7 @@ struct Cli {
 
     /// Disable filtering of memory maps when attaching to the target process.
     /// By default, the server filters out irrelevant memory maps to improve performance.
-    #[arg(short, long, default_value_t = false)]
+    #[arg(short = 'f', long, default_value_t = false)]
     map_filter_off: bool,
 }
 
