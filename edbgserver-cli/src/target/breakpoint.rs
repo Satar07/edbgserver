@@ -520,14 +520,14 @@ impl EdbgTarget {
     pub fn handle_trap(&mut self) {
         if let Some(context) = &self.context {
             debug!(
-                "Handling trap for PID: {}, PC: {:#x}",
+                "Handling trap for TID: {}, PC: {:#x}",
                 context.tid,
                 context.pc()
             );
             if let Some((addr, link_id)) = self.temp_step_breakpoints.take() {
                 if addr == context.pc() {
                     debug!(
-                        "Temp breakpoint hit at {:#x} for PID: {}. Detaching UProbe.",
+                        "Temp breakpoint hit at {:#x} for TID: {}. Detaching UProbe.",
                         addr, context.tid
                     );
                     if let Err(e) = self.get_probe_program().detach(link_id) {
