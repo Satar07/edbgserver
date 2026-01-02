@@ -10,7 +10,7 @@ use std::{
 };
 
 use gdbstub::target::ext::host_io::*;
-use log::debug;
+use log::{debug, trace};
 
 trait MetadataToHostIoStat {
     fn to_gdb_stat(&self) -> HostIoStat;
@@ -86,7 +86,7 @@ impl VirtualFile {
     pub fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> std::io::Result<usize> {
         match self {
             VirtualFile::Real(file) => {
-                debug!(
+                trace!(
                     "VirtualFile: read real file off={} len={}",
                     offset,
                     buf.len()
@@ -94,7 +94,7 @@ impl VirtualFile {
                 file.read_at(buf, offset)
             }
             VirtualFile::Cached { data, .. } => {
-                debug!(
+                trace!(
                     "VirtualFile: Cached read_at off={} len={}",
                     offset,
                     buf.len()

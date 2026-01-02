@@ -54,6 +54,7 @@ pub struct EdbgTarget {
     exec_path: Option<PathBuf>,
     pub bound_pid: Option<u32>,
     pub bound_tid: Option<u32>,
+    process_memory_handle: Option<process_memory::ProcessHandle>,
     host_io_files: HashMap<u32, crate::virtual_file::VirtualFile>,
     next_host_io_fd: u32,
     pub is_multi_thread: bool,
@@ -106,6 +107,7 @@ impl EdbgTarget {
             exec_path: None,
             bound_pid: None,
             bound_tid: None,
+            process_memory_handle: None,
             host_io_files: HashMap::new(),
             next_host_io_fd: HOST_IO_FD_START,
             is_multi_thread,
@@ -224,17 +226,15 @@ impl MultiThreadBase for EdbgTarget {
         data: &mut [u8],
         _tid: gdbstub::common::Tid,
     ) -> TargetResult<usize, Self> {
-        use process_memory::{CopyAddress, TryIntoProcessHandle};
-        let handle = (self.get_pid().map_err(|_| {
-            error!("no pid");
-            TargetError::NonFatal
-        })? as i32)
-            .try_into_process_handle()
-            .map_err(|e| {
-                warn!("Failed to create process handle: {}", e);
-                TargetError::Io(e)
-            })?;
-        match handle.copy_address(start_addr as usize, data) {
+        use process_memory::CopyAddress;
+        match self
+            .process_memory_handle
+            .ok_or_else(|| {
+                error!("process handle not init! ");
+                TargetError::NonFatal
+            })?
+            .copy_address(start_addr as usize, data)
+        {
             Ok(_) => Ok(data.len()),
             Err(e) => {
                 debug!("Failed to read memory at {:#x}: {}", start_addr, e); // that usual happends
@@ -249,17 +249,15 @@ impl MultiThreadBase for EdbgTarget {
         data: &[u8],
         _tid: gdbstub::common::Tid,
     ) -> TargetResult<(), Self> {
-        use process_memory::{PutAddress, TryIntoProcessHandle};
-        let handle = (self.get_pid().map_err(|_| {
-            error!("no pid");
-            TargetError::NonFatal
-        })? as i32)
-            .try_into_process_handle()
-            .map_err(|e| {
-                warn!("Failed to create process handle: {}", e);
-                TargetError::Io(e)
-            })?;
-        match handle.put_address(start_addr as usize, data) {
+        use process_memory::PutAddress;
+        match self
+            .process_memory_handle
+            .ok_or_else(|| {
+                error!("process handle not init! ");
+                TargetError::NonFatal
+            })?
+            .put_address(start_addr as usize, data)
+        {
             Ok(_) => Ok(()),
             Err(e) => {
                 warn!("Failed to write memory at {:x}: {}", start_addr, e);

@@ -434,6 +434,10 @@ impl EdbgTarget {
             self.exec_path = Some(exe);
             self.bound_pid = Some(target_pid);
             self.bound_tid = Some(target_tid);
+
+            use process_memory::TryIntoProcessHandle;
+            self.process_memory_handle = (target_pid as i32).try_into_process_handle().ok();
+
             if !self.is_multi_thread {
                 self.thread_filter
                     .set(0, ThreadFilter::Some(target_tid), 0)
