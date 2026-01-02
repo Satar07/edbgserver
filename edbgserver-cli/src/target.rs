@@ -58,12 +58,13 @@ pub struct EdbgTarget {
     host_io_files: HashMap<u32, crate::virtual_file::VirtualFile>,
     next_host_io_fd: u32,
     pub is_multi_thread: bool,
+    need_filter_maps: bool,
 }
 
 pub const HOST_IO_FD_START: u32 = 100;
 
 impl EdbgTarget {
-    pub fn new(mut ebpf: Ebpf, is_multi_thread: bool) -> Self {
+    pub fn new(mut ebpf: Ebpf, is_multi_thread: bool, need_filter_maps: bool) -> Self {
         let program: &mut UProbe = ebpf
             .program_mut("probe_callback")
             .expect("cannot find ebpf program probe_callback")
@@ -111,6 +112,7 @@ impl EdbgTarget {
             host_io_files: HashMap::new(),
             next_host_io_fd: HOST_IO_FD_START,
             is_multi_thread,
+            need_filter_maps,
         }
     }
 

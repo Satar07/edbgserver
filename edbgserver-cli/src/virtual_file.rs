@@ -41,11 +41,101 @@ pub enum VirtualFile {
     Cached { data: Cursor<Vec<u8>> },
 }
 
+fn filter_maps_content(content: &str) -> String {
+    let mut result = String::with_capacity(4096);
+    for line in content.lines() {
+        if line.contains(" ---p ") {
+            continue;
+        }
+        if line.contains("/dev/__properties__") {
+            continue;
+        }
+        if line.contains(".jar")
+            || line.contains(".apk")
+            || line.contains(".dex")
+            || line.contains(".oat")
+            || line.contains(".art")
+            || line.contains(".res")
+            || line.contains(".hyb")
+            || line.contains("/overlay/")
+            || line.contains("/resource-cache/")
+            || line.contains(".ttf")
+        {
+            continue;
+        }
+
+        if line.contains("bionic_alloc")
+            || line.contains("linker_alloc")
+            || line.contains("scudo:")
+            || line.contains("dalvik-")
+            || line.contains("thread signal stack")
+            || line.contains("InternalMmapVector")
+            || line.contains("System property")
+            || line.contains("gwp-asan")
+            || line.contains("arc4random")
+            || line.contains("ReadFileToBuffer")
+        {
+            continue;
+        }
+
+        let is_primary_special = line.contains("[stack]")
+            || line.contains("[heap]")
+            || line.contains("[vdso]")
+            || line.contains("[vvar]");
+
+        let is_thread_stack = line.contains("stack_and_tls");
+
+        let is_user_lib = line.contains("/data/app/") || line.contains("/data/data/");
+
+        let is_system_path =
+            line.contains("/system/") || line.contains("/vendor/") || line.contains("/apex/");
+
+        let is_infra_lib = line.contains("/libc.so")
+            || line.contains("/libm.so")
+            || line.contains("/libdl.so")
+            || line.contains("linker");
+
+        let is_exec = line.contains(" r-xp ");
+        let is_write = line.contains(" rw-p ");
+        let is_bbs = line.contains(" [anon:.bss]");
+
+        let mut keep = false;
+        let mut modified_line: Option<String> = None;
+
+        if is_primary_special {
+            keep = true;
+        } else if is_thread_stack {
+            keep = true;
+            modified_line = Some(line.replace("[anon:stack_and_tls:", "[stack:"));
+        } else if is_user_lib {
+            keep = true;
+        } else if is_system_path {
+            keep = false;
+        } else if is_infra_lib {
+            if is_exec || is_write {
+                keep = true;
+            }
+        } else if is_exec {
+            keep = true;
+        } else if is_bbs {
+            keep = false;
+        }
+
+        if keep {
+            let final_line = modified_line.as_deref().unwrap_or(line);
+            result.push_str(final_line);
+            result.push('\n');
+        }
+    }
+    result
+}
+
 impl VirtualFile {
     pub fn open(
         filename: &[u8],
         flags: HostIoOpenFlags,
         mode: HostIoOpenMode,
+        need_filter_maps: bool,
     ) -> std::io::Result<Self> {
         let path = Path::new(OsStr::from_bytes(filename));
         let path_str = path.to_string_lossy();
@@ -54,6 +144,20 @@ impl VirtualFile {
             "VirtualFile: Request open '{}' (flags={:?}, mode={:?})",
             path_str, flags, mode
         );
+
+        if need_filter_maps && flags == HostIoOpenFlags::O_RDONLY && path.ends_with("maps") {
+            debug!("VirtualFile: Smart filtering maps file...");
+            let raw_content = std::fs::read_to_string(path)?;
+            let filtered = filter_maps_content(&raw_content);
+            debug!(
+                "VirtualFile: Maps compressed {} -> {} bytes",
+                raw_content.len(),
+                filtered.len()
+            );
+            return Ok(VirtualFile::Cached {
+                data: Cursor::new(filtered.into_bytes()),
+            });
+        }
 
         if flags == HostIoOpenFlags::O_RDONLY {
             debug!("VirtualFile: HIT CACHE STRATEGY for '{}'", path_str);

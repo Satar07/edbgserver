@@ -1,7 +1,7 @@
 use std::io;
 
 use gdbstub::common::Signal;
-use log::{debug, warn};
+use log::{debug, error, warn};
 
 fn sys_tgkill(tgid: i32, tid: i32, sig: i32) -> io::Result<()> {
     debug!("Sending signal {} to tgid {} tid {}", sig, tgid, tid);
@@ -55,7 +55,7 @@ fn gdb_sig_to_libc(sig: &Signal) -> Option<i32> {
 pub fn send_sigcont_to_process(pid: u32) {
     debug!("Sending SIGCONT to pid {} ", pid);
     if let Err(e) = sys_kill(pid as i32, libc::SIGCONT) {
-        warn!("Failed to send SIGCONT to process {}: {}", pid, e);
+        error!("Failed to send SIGCONT to process {}: {}", pid, e);
     }
 }
 
@@ -78,7 +78,7 @@ pub fn send_sig_to_thread(pid: u32, tid: u32, sig: &Signal) {
                 sig, libc_sig, pid, tid, e
             );
             if let Err(e) = sys_kill(pid as i32, libc_sig) {
-                warn!(
+                error!(
                     "Failed to send {:?} (libc: {}) to process {}: {}",
                     sig, libc_sig, pid, e
                 );
@@ -107,13 +107,13 @@ pub fn send_sig_to_process(pid: u32, sig: &Signal) {
     debug!("Sending signal {:?} to pid {}", sig, pid);
     if let Some(libc_sig) = gdb_sig_to_libc(sig) {
         if let Err(e) = sys_kill(pid as i32, libc_sig) {
-            warn!(
+            error!(
                 "Failed to send {:?} (libc: {}) to process {}: {}",
                 sig, libc_sig, pid, e
             );
         }
     } else {
-        warn!(
+        error!(
             "Unsupported signal conversion for gdb signal: {:?} (pid: {})",
             sig, pid
         );

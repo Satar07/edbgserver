@@ -76,8 +76,13 @@ struct Cli {
     break_point: u64,
 
     /// Run the server in multi-threaded mode.
-    #[arg(short = 'm', long, default_value_t = false)]
-    is_multi_thread: bool,
+    #[arg(short, long, default_value_t = false)]
+    multi_thread: bool,
+
+    /// Disable filtering of memory maps when attaching to the target process.
+    /// By default, the server filters out irrelevant memory maps to improve performance.
+    #[arg(short, long, default_value_t = false)]
+    map_filter_off: bool,
 }
 
 #[tokio::main]
@@ -91,7 +96,7 @@ async fn main() -> Result<()> {
     let ebpf = init_aya();
 
     // main target new
-    let mut edbg_target = EdbgTarget::new(ebpf, opt.is_multi_thread);
+    let mut edbg_target = EdbgTarget::new(ebpf, opt.multi_thread, !opt.map_filter_off);
     edbg_target
         .attach_init_probe(init_uprobe_file_path, init_uprobe_file_offset, opt.pid)
         .context("Failed to attach init probe, make sure breakpoint and target is valid")?;

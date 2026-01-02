@@ -48,7 +48,7 @@ impl HostIoOpen for EdbgTarget {
         flags: HostIoOpenFlags,
         mode: HostIoOpenMode,
     ) -> HostIoResult<u32, Self> {
-        match VirtualFile::open(filename, flags, mode) {
+        match VirtualFile::open(filename, flags, mode, self.need_filter_maps) {
             Ok(vfile) => {
                 let fd = self.next_host_io_fd;
                 self.next_host_io_fd = fd
