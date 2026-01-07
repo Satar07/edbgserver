@@ -251,7 +251,7 @@ impl EdbgTarget {
             .attach(location, target.canonicalize()?, Some(target_pid), None)
             .map_err(|e| {
                 error!(
-                    "aya uprobe attach failed. location: {:#x}, target: {:?}, pid: {}. error: {}",
+                    "aya uprobe attach failed. location: {:#x}, target: {:?}, pid: {}. error: {:#?}",
                     location, target, target_pid, e
                 );
                 anyhow::anyhow!("aya urpobe attach failed: {}", e)
@@ -289,7 +289,7 @@ impl EdbgTarget {
                 .attach(config, scope, sample_policy, true)
                 .map_err(|e| {
                     error!(
-                        "aya perf event attach failed. addr: {:#x}, tid: {}. error: {}",
+                        "aya perf event attach failed. addr: {:#x}, tid: {}. error: {:#?}",
                         addr, tid, e
                     );
                     anyhow::anyhow!("aya perf event attach failed for tid {}: {}", tid, e)
@@ -353,7 +353,7 @@ impl EdbgTarget {
                 .attach(config, scope, sample_policy, true)
                 .map_err(|e| {
                     error!(
-                        "aya perf event attach (watch point) failed. addr: {:#x}, tid: {}. error: {}",
+                        "aya perf event attach (watch point) failed. addr: {:#x}, tid: {}. error: {:#?}",
                         address, tid, e
                     );
                     anyhow::anyhow!("aya perf event attach (watch point) failed for tid {}: {}", tid, e)
