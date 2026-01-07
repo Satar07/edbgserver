@@ -13,7 +13,7 @@ use gdbstub::{
         },
     },
 };
-use log::{debug, error, info, trace};
+use log::{debug, error, info, trace, warn};
 use procfs::process::Process;
 
 use crate::{
@@ -51,6 +51,10 @@ impl MultiThreadResume for EdbgTarget {
         debug!("clear resume actions");
         self.resume_actions.clear();
         self.is_scheduler_lock = false;
+
+        while self.ring_buf.next().is_some() {
+            warn!("Draining stale event from ring buffer before resume");
+        }
         Ok(())
     }
 
