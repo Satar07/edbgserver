@@ -8,7 +8,7 @@ use anyhow::Result;
 use aya::{
     Ebpf,
     maps::{Array, MapData, RingBuf},
-    programs::{PerfEvent, UProbe, perf_event::PerfEventLinkId, uprobe::UProbeLinkId},
+    programs::{PerfEvent, UProbe},
 };
 use edbgserver_common::{DataT, ThreadFilter};
 use gdbstub::{
@@ -44,11 +44,10 @@ pub struct EdbgTarget {
     pub ring_buf: RingBuf<MapData>,
     pub notifier: AsyncFd<OwnedFd>,
     thread_filter: Array<MapData, ThreadFilter>,
-    active_sw_breakpoints: HashMap<u64, UProbeLinkId>,
-    active_hw_breakpoints: HashMap<u64, Vec<PerfEventLinkId>>,
-    active_hw_watchpoint: HashMap<u64, breakpoint::WatchPointMeta>,
-    temp_step_breakpoints: Option<(u64, UProbeLinkId)>,
-    init_probe_link_id: Option<UProbeLinkId>,
+    active_breakpoints: HashMap<u64, breakpoint::BreakpointHandle>,
+    active_watchpoint: HashMap<u64, breakpoint::WatchPointMeta>,
+    temp_step_breakpoints: Option<(u64, breakpoint::BreakpointHandle)>,
+    init_probe_link_id: Option<breakpoint::BreakpointHandle>,
     resume_actions: Vec<(Tid, ThreadAction)>,
     is_scheduler_lock: bool,
     exec_path: Option<PathBuf>,
@@ -100,9 +99,8 @@ impl EdbgTarget {
             ring_buf: ringbuf,
             notifier,
             thread_filter,
-            active_sw_breakpoints: HashMap::new(),
-            active_hw_breakpoints: HashMap::new(),
-            active_hw_watchpoint: HashMap::new(),
+            active_breakpoints: HashMap::new(),
+            active_watchpoint: HashMap::new(),
             temp_step_breakpoints: None,
             init_probe_link_id: None,
             resume_actions: Vec::new(),

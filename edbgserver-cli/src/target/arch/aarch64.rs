@@ -6,7 +6,7 @@ use capstone::{
 use edbgserver_common::DataT;
 use log::{debug, error, info};
 
-use crate::target::EdbgTarget;
+use crate::target::{EdbgTarget, breakpoint::BreakpointHandle};
 
 pub struct LinuxAArch64Core {}
 
@@ -100,31 +100,30 @@ impl EdbgTarget {
             .calculation_next_pc(curr_pc)
             .map_err(|e| anyhow!("Failed to calculate next PC for single step: {}", e))?;
         debug!("Next PC calculated: {:#x}", next_pc);
-        if self.active_sw_breakpoints.contains_key(&next_pc) {
+        if self.active_breakpoints.contains_key(&next_pc) {
             return Ok(());
         }
         match self.internel_attach_uprobe(next_pc) {
             Ok(link_id) => {
-                info!("Attached UProbe at VMA: {:#x}", next_pc);
-                self.temp_step_breakpoints = Some((next_pc, link_id));
+                info!("Successfully attached UProbe at {:#x}", next_pc);
+                self.temp_step_breakpoints = Some((next_pc, BreakpointHandle::UProbe(link_id)));
             }
             Err(e) => {
-                let (is_svc, insn_len) = {
-                    let cs = EdbgTarget::create_capstone()?;
-                    let code = self.read_instruction(next_pc)?.to_le_bytes();
-                    let insns = cs.disasm_count(&code, next_pc, 1)?;
-                    let insn = insns.first().ok_or(anyhow!("failed to get first insn"))?;
-
-                    let is_svc = Arm64Insn::from(insn.id().0 as u32) == Arm64Insn::ARM64_INS_SVC;
-                    let len = insn.len() as u64;
-                    (is_svc, len)
-                };
-                if is_svc {
-                    info!("Next instruction is SVC, step over");
-                    self.single_step_thread(curr_pc + insn_len)?;
-                } else {
-                    return Err(e);
+                info!(
+                    "Failed to attach UProbe at {:#x}: {}. Checking for special cases...",
+                    next_pc, e
+                );
+                if next_pc == curr_pc {
+                    bail!(
+                        "Stuck in a loop: Cannot attach breakpoint at {:#x} and next PC is same.",
+                        next_pc
+                    );
                 }
+                info!(
+                    "Skipping un-attachable instruction at {:#x}, recursively stepping...",
+                    next_pc
+                );
+                self.single_step_thread(next_pc)?;
             }
         }
         Ok(())

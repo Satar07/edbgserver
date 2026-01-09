@@ -8,7 +8,7 @@ use edbgserver_common::DataT;
 use gdbstub_arch::x86::reg::X86_64CoreRegs;
 use log::{debug, error, info, trace, warn};
 
-use crate::target::EdbgTarget;
+use crate::target::{EdbgTarget, breakpoint::BreakpointHandle};
 
 pub fn fill_regs(regs: &mut X86_64CoreRegs, ctx: &DataT) {
     regs.regs[0] = ctx.rax;
@@ -42,7 +42,7 @@ impl EdbgTarget {
 
         debug!("Calculated Next PC: {:#x}", next_pc);
 
-        if self.active_sw_breakpoints.contains_key(&next_pc) {
+        if self.active_breakpoints.contains_key(&next_pc) {
             info!(
                 "Next PC {:#x} already has a SW breakpoint, skipping set.",
                 next_pc
@@ -53,7 +53,7 @@ impl EdbgTarget {
         match self.internel_attach_uprobe(next_pc) {
             Ok(link_id) => {
                 info!("Successfully attached UProbe at {:#x}", next_pc);
-                self.temp_step_breakpoints = Some((next_pc, link_id));
+                self.temp_step_breakpoints = Some((next_pc, BreakpointHandle::UProbe(link_id)));
             }
             Err(e) => {
                 warn!(

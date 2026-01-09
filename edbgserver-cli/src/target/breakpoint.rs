@@ -42,13 +42,19 @@ impl Breakpoints for EdbgTarget {
     }
 }
 
+#[derive(Debug)]
+pub enum BreakpointHandle {
+    UProbe(UProbeLinkId),
+    Perf(Vec<PerfEventLinkId>),
+}
+
 impl SwBreakpoint for EdbgTarget {
     fn add_sw_breakpoint(
         &mut self,
         addr: u64,
         _kind: <Self::Arch as gdbstub::arch::Arch>::BreakpointKind,
     ) -> TargetResult<bool, Self> {
-        if self.active_sw_breakpoints.contains_key(&addr) {
+        if self.active_breakpoints.contains_key(&addr) {
             return Ok(false);
         }
         self.internel_attach_uprobe(addr)
@@ -58,7 +64,8 @@ impl SwBreakpoint for EdbgTarget {
             })
             .map(|link_id| {
                 info!("Attached UProbe at VMA: {:#x}", addr);
-                self.active_sw_breakpoints.insert(addr, link_id);
+                self.active_breakpoints
+                    .insert(addr, BreakpointHandle::UProbe(link_id));
                 true
             })
     }
@@ -68,9 +75,9 @@ impl SwBreakpoint for EdbgTarget {
         addr: u64,
         _kind: <Self::Arch as gdbstub::arch::Arch>::BreakpointKind,
     ) -> TargetResult<bool, Self> {
-        if let Some(link_id) = self.active_sw_breakpoints.remove(&addr) {
+        if let Some(link_id) = self.active_breakpoints.remove(&addr) {
             log::info!("Detaching UProbe at VMA: {:#x}", addr);
-            self.get_probe_program().detach(link_id).map_err(|e| {
+            self.detach_breakpoint_handle(link_id).map_err(|e| {
                 error!("aya detach failed: {}", e);
                 TargetError::NonFatal
             })?;
@@ -87,13 +94,14 @@ impl HwBreakpoint for EdbgTarget {
         addr: <Self::Arch as gdbstub::arch::Arch>::Usize,
         _kind: <Self::Arch as gdbstub::arch::Arch>::BreakpointKind,
     ) -> TargetResult<bool, Self> {
-        if self.active_hw_breakpoints.contains_key(&addr) {
+        if self.active_breakpoints.contains_key(&addr) {
             return Ok(false);
         }
         match self.internel_attach_perf_event_break_point(addr) {
-            Ok(link_id) => {
+            Ok(link_ids) => {
                 info!("Attached perf event at VMA: {:#x}", addr);
-                self.active_hw_breakpoints.insert(addr, link_id);
+                self.active_breakpoints
+                    .insert(addr, BreakpointHandle::Perf(link_ids));
                 Ok(true)
             }
             Err(e) => {
@@ -108,29 +116,12 @@ impl HwBreakpoint for EdbgTarget {
         addr: <Self::Arch as gdbstub::arch::Arch>::Usize,
         _kind: <Self::Arch as gdbstub::arch::Arch>::BreakpointKind,
     ) -> TargetResult<bool, Self> {
-        if let Some(link_ids) = self.active_hw_breakpoints.remove(&addr) {
+        if let Some(link_ids) = self.active_breakpoints.remove(&addr) {
             log::info!("Detaching perf events at VMA: {:#x}", addr);
-            let prog = self.get_perf_event_program();
-            let all_success = link_ids
-                .into_iter()
-                .map(|id| {
-                    prog.detach(id)
-                        .map_err(|e| {
-                            error!("aya detach failed: {}", e);
-                            e
-                        })
-                        .is_ok()
-                })
-                .collect::<Vec<_>>()
-                .into_iter()
-                .all(|ok| ok);
-            if !all_success {
-                error!(
-                    "One or more perf event detachments failed at VMA: {:#x}",
-                    addr
-                );
-                return Err(TargetError::NonFatal);
-            }
+            self.detach_breakpoint_handle(link_ids).map_err(|e| {
+                error!("aya detach failed: {}", e);
+                TargetError::NonFatal
+            })?;
             Ok(true)
         } else {
             Ok(false)
@@ -151,7 +142,7 @@ impl HwWatchpoint for EdbgTarget {
         len: <Self::Arch as gdbstub::arch::Arch>::Usize,
         kind: WatchKind,
     ) -> TargetResult<bool, Self> {
-        if self.active_hw_watchpoint.contains_key(&addr) {
+        if self.active_watchpoint.contains_key(&addr) {
             return Ok(false);
         }
         // x86 debug registers cannot trigger on read-only watchpoints, so the
@@ -173,7 +164,7 @@ impl HwWatchpoint for EdbgTarget {
         match self.internel_attach_perf_event_watch_point(addr, len, kind) {
             Ok(link_ids) => {
                 info!("Attached perf event (watch point) at VMA: {:#x}", addr);
-                self.active_hw_watchpoint.insert(
+                self.active_watchpoint.insert(
                     addr,
                     WatchPointMeta {
                         link_ids,
@@ -196,7 +187,7 @@ impl HwWatchpoint for EdbgTarget {
         _len: <Self::Arch as gdbstub::arch::Arch>::Usize,
         _kind: gdbstub::target::ext::breakpoints::WatchKind,
     ) -> TargetResult<bool, Self> {
-        if let Some(watch_point_meta) = self.active_hw_watchpoint.remove(&addr) {
+        if let Some(watch_point_meta) = self.active_watchpoint.remove(&addr) {
             log::info!("Detaching perf event (watch point) at VMA: {:#x}", addr);
             let prog = self.get_perf_event_program();
             let all_success = watch_point_meta
@@ -242,7 +233,10 @@ impl EdbgTarget {
                 let file_offset = vma - map.address.0 + map.offset;
                 return Ok((file_offset, path));
             } else {
-                error!("Cannot attach uprobe to anonymous memory at {:#x}", vma);
+                error!(
+                    "Cannot attach uprobe to anonymous memory at {:#x} (path name: {:?})",
+                    vma, map.pathname
+                );
                 return Err(TargetError::NonFatal);
             }
         }
@@ -380,6 +374,28 @@ impl EdbgTarget {
         Ok(links)
     }
 
+    fn detach_breakpoint_handle(&mut self, handle: BreakpointHandle) -> Result<()> {
+        match handle {
+            BreakpointHandle::UProbe(id) => self
+                .get_probe_program()
+                .detach(id)
+                .map_err(|e| anyhow!("UProbe detach failed: {}", e)),
+            BreakpointHandle::Perf(ids) => {
+                let prog = self.get_perf_event_program();
+                let mut last_err = None;
+                for id in ids {
+                    if let Err(e) = prog.detach(id) {
+                        last_err = Some(e);
+                    }
+                }
+                if let Some(e) = last_err {
+                    bail!("Perf detach failed: {}", e);
+                }
+                Ok(())
+            }
+        }
+    }
+
     pub fn attach_init_probe(
         &mut self,
         binary_target: PathBuf,
@@ -399,7 +415,7 @@ impl EdbgTarget {
         )?;
         self.bound_pid = target_pid;
 
-        self.init_probe_link_id = Some(link_id);
+        self.init_probe_link_id = Some(BreakpointHandle::UProbe(link_id));
         Ok(())
     }
 
@@ -467,7 +483,7 @@ impl EdbgTarget {
 
             if let Some(link_id) = self.init_probe_link_id.take() {
                 info!("Removing initial temporary breakpoint");
-                if let Err(e) = self.get_probe_program().detach(link_id) {
+                if let Err(e) = self.detach_breakpoint_handle(link_id) {
                     error!("Failed to detach initial probe: {}", e);
                 }
             } else {
@@ -506,15 +522,19 @@ impl EdbgTarget {
             debug!("Step breakpoint hit at {:#x} for TID: {}", pc, tid);
             return MultiThreadStopReason::DoneStep;
         }
-        if self.active_sw_breakpoints.contains_key(&pc) {
-            debug!("Software breakpoint hit at {:#x} for TID: {}", pc, tid);
-            return MultiThreadStopReason::SwBreak(tid);
+        if let Some(breakpoint) = self.active_breakpoints.get(&pc) {
+            match breakpoint {
+                BreakpointHandle::UProbe(_uprobe_link_id) => {
+                    debug!("Software breakpoint hit at {:#x} for TID: {}", pc, tid);
+                    return MultiThreadStopReason::SwBreak(tid);
+                }
+                BreakpointHandle::Perf(_perf_event_link_ids) => {
+                    debug!("Hardware breakpoint hit at {:#x} for TID: {}", pc, tid);
+                    return MultiThreadStopReason::HwBreak(tid);
+                }
+            }
         }
-        if self.active_hw_breakpoints.contains_key(&pc) {
-            debug!("Hardware breakpoint hit at {:#x} for TID: {}", pc, tid);
-            return MultiThreadStopReason::HwBreak(tid);
-        }
-        for (watch_start, meta) in &self.active_hw_watchpoint {
+        for (watch_start, meta) in &self.active_watchpoint {
             if fault_addr >= *watch_start && fault_addr < *watch_start + meta.len {
                 debug!(
                     "Watchpoint hit at {:#x} (watch range: {:#x} - {:#x}) for TID: {}",
@@ -553,16 +573,16 @@ impl EdbgTarget {
                     "Temp breakpoint hit at {:#x} for TID: {}. Detaching UProbe.",
                     addr, context.tid
                 );
-                if let Err(e) = self.get_probe_program().detach(link_id) {
+                if let Err(e) = self.detach_breakpoint_handle(link_id) {
                     error!("Failed to detach UProbe at {:#x}: {}", addr, e);
                 }
             } else {
                 debug!(
-                    "Trap at {:#x} does not match temp breakpoint at {:#x}. Cleaning up temp BP anyway.",
+                    "Trap at {:#x} does not match temp breakpoint at {:#x}. Cleaning up temp breakpoint anyway.",
                     context.pc(),
                     addr
                 );
-                let _ = self.get_probe_program().detach(link_id);
+                let _ = self.detach_breakpoint_handle(link_id);
             }
         }
         self.update_libraries_cache()
