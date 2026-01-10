@@ -64,8 +64,7 @@ impl SwBreakpoint for EdbgTarget {
             })
             .map(|link_id| {
                 info!("Attached UProbe at VMA: {:#x}", addr);
-                self.active_breakpoints
-                    .insert(addr, BreakpointHandle::UProbe(link_id));
+                self.active_breakpoints.insert(addr, link_id);
                 true
             })
     }
@@ -100,8 +99,7 @@ impl HwBreakpoint for EdbgTarget {
         match self.internel_attach_perf_event_break_point(addr) {
             Ok(link_ids) => {
                 info!("Attached perf event at VMA: {:#x}", addr);
-                self.active_breakpoints
-                    .insert(addr, BreakpointHandle::Perf(link_ids));
+                self.active_breakpoints.insert(addr, link_ids);
                 Ok(true)
             }
             Err(e) => {
@@ -244,7 +242,7 @@ impl EdbgTarget {
         Err(TargetError::NonFatal)
     }
 
-    pub fn internel_attach_uprobe(&mut self, addr: u64) -> Result<UProbeLinkId> {
+    pub fn internel_attach_uprobe(&mut self, addr: u64) -> Result<BreakpointHandle> {
         let (location, target) = self.resolve_vma_to_probe_location(addr).map_err(|_| {
             anyhow::anyhow!(
                 "Failed to resolve VMA to probe location for addr {:#x}",
@@ -266,13 +264,13 @@ impl EdbgTarget {
                 );
                 anyhow::anyhow!("aya urpobe attach failed: {}", e)
             })?;
-        Ok(link_id)
+        Ok(BreakpointHandle::UProbe(link_id))
     }
 
     pub fn internel_attach_perf_event_break_point(
         &mut self,
         addr: u64,
-    ) -> Result<Vec<PerfEventLinkId>> {
+    ) -> Result<BreakpointHandle> {
         let pid = self.get_pid()?;
         debug!("Attaching perf event to {:#x} for process {}", addr, pid);
         let config = PerfEventConfig::Breakpoint(BreakpointConfig::Instruction { address: addr });
@@ -307,7 +305,7 @@ impl EdbgTarget {
             debug!("Attached perf event to thread TID: {}", tid);
             links.push(link_id);
         }
-        Ok(links)
+        Ok(BreakpointHandle::Perf(links))
     }
 
     pub fn internel_attach_perf_event_watch_point(

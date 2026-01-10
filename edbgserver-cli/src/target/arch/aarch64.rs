@@ -4,9 +4,9 @@ use capstone::{
     prelude::*,
 };
 use edbgserver_common::DataT;
-use log::{debug, error, info};
+use log::{debug, error};
 
-use crate::target::{EdbgTarget, breakpoint::BreakpointHandle};
+use crate::target::EdbgTarget;
 
 pub struct LinuxAArch64Core {}
 
@@ -95,40 +95,6 @@ pub fn fill_regs(regs: &mut AArch64MinimalRegs, ctx: &DataT) {
 }
 
 impl EdbgTarget {
-    pub fn single_step_thread(&mut self, curr_pc: u64) -> Result<()> {
-        let next_pc = self
-            .calculation_next_pc(curr_pc)
-            .map_err(|e| anyhow!("Failed to calculate next PC for single step: {}", e))?;
-        debug!("Next PC calculated: {:#x}", next_pc);
-        if self.active_breakpoints.contains_key(&next_pc) {
-            return Ok(());
-        }
-        match self.internel_attach_uprobe(next_pc) {
-            Ok(link_id) => {
-                info!("Successfully attached UProbe at {:#x}", next_pc);
-                self.temp_step_breakpoints = Some((next_pc, BreakpointHandle::UProbe(link_id)));
-            }
-            Err(e) => {
-                info!(
-                    "Failed to attach UProbe at {:#x}: {}. Checking for special cases...",
-                    next_pc, e
-                );
-                if next_pc == curr_pc {
-                    bail!(
-                        "Stuck in a loop: Cannot attach breakpoint at {:#x} and next PC is same.",
-                        next_pc
-                    );
-                }
-                info!(
-                    "Skipping un-attachable instruction at {:#x}, recursively stepping...",
-                    next_pc
-                );
-                self.single_step_thread(next_pc)?;
-            }
-        }
-        Ok(())
-    }
-
     fn create_capstone() -> Result<Capstone> {
         Capstone::new()
             .arm64()
@@ -145,7 +111,7 @@ impl EdbgTarget {
         Ok(u32::from_le_bytes(buf))
     }
 
-    fn calculation_next_pc(&self, current_pc: u64) -> Result<u64> {
+    pub fn calculation_next_pc(&self, current_pc: u64) -> Result<u64> {
         debug!("Calculating next PC from current PC: {:#x}", current_pc);
         let code = self.read_instruction(current_pc)?;
         let code_byte = code.to_le_bytes();

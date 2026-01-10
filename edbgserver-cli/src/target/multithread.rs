@@ -1,6 +1,6 @@
 use std::{collections::HashSet, ffi::OsStr, num::NonZero, os::unix::ffi::OsStrExt, process};
 
-use anyhow::{Result, bail};
+use anyhow::{Result, anyhow, bail};
 use gdbstub::{
     common::{Signal, Tid},
     target::{
@@ -262,5 +262,44 @@ impl EdbgTarget {
             .collect();
 
         Ok(threads)
+    }
+
+    fn single_step_thread(&mut self, curr_pc: u64) -> Result<()> {
+        let next_pc = self
+            .calculation_next_pc(curr_pc)
+            .map_err(|e| anyhow!("Failed to calculate next PC for single step: {}", e))?;
+        debug!("Next PC calculated: {:#x}", next_pc);
+        if self.active_breakpoints.contains_key(&next_pc) {
+            return Ok(());
+        }
+        let add_breakpoint_func = if self.step_use_uprobe {
+            EdbgTarget::internel_attach_uprobe
+        } else {
+            EdbgTarget::internel_attach_perf_event_break_point
+        };
+        match add_breakpoint_func(self, next_pc) {
+            Ok(link_id) => {
+                info!("Successfully attached UProbe at {:#x}", next_pc);
+                self.temp_step_breakpoints = Some((next_pc, link_id));
+            }
+            Err(e) => {
+                info!(
+                    "Failed to attach UProbe at {:#x}: {}. Checking for special cases...",
+                    next_pc, e
+                );
+                if next_pc == curr_pc {
+                    bail!(
+                        "Stuck in a loop: Cannot attach breakpoint at {:#x} and next PC is same.",
+                        next_pc
+                    );
+                }
+                info!(
+                    "Skipping un-attachable instruction at {:#x}, recursively stepping...",
+                    next_pc
+                );
+                self.single_step_thread(next_pc)?;
+            }
+        }
+        Ok(())
     }
 }

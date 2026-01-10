@@ -9,3 +9,4 @@ debug/
 **/*.rs.bk
 .gdb_history
 android_sysroot/
+.DS_Store

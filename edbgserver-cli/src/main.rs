@@ -31,7 +31,7 @@ fn get_styles() -> Styles {
 #[derive(Debug, Parser)]
 #[command(
     version,
-    about = "An eBPF-based GDB Stub Server",
+    about = "An eBPF-based GDB Server",
     styles = get_styles(),
     long_about = r#"An eBPF-based GDB Stub Server designed for analyzing running processes.
 
@@ -83,6 +83,10 @@ struct Cli {
     /// By default, the server filters out irrelevant memory maps to improve performance.
     #[arg(short = 'f', long, default_value_t = false)]
     map_filter_off: bool,
+
+    /// force using uprobe implementation for single-step (perf by default)
+    #[arg(short = 'u', long, default_value_t = false)]
+    step_use_uprobe: bool,
 }
 
 #[tokio::main]
@@ -96,7 +100,12 @@ async fn main() -> Result<()> {
     let ebpf = init_aya();
 
     // main target new
-    let mut edbg_target = EdbgTarget::new(ebpf, opt.multi_thread, !opt.map_filter_off);
+    let mut edbg_target = EdbgTarget::new(
+        ebpf,
+        opt.multi_thread,
+        !opt.map_filter_off,
+        opt.step_use_uprobe,
+    );
     edbg_target
         .attach_init_probe(init_uprobe_file_path, init_uprobe_file_offset, opt.pid)
         .context("Failed to attach init probe, make sure breakpoint and target is valid")?;

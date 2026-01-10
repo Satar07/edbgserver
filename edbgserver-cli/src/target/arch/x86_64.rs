@@ -6,9 +6,9 @@ use capstone::{
 };
 use edbgserver_common::DataT;
 use gdbstub_arch::x86::reg::X86_64CoreRegs;
-use log::{debug, error, info, trace, warn};
+use log::{debug, error, trace, warn};
 
-use crate::target::{EdbgTarget, breakpoint::BreakpointHandle};
+use crate::target::EdbgTarget;
 
 pub fn fill_regs(regs: &mut X86_64CoreRegs, ctx: &DataT) {
     regs.regs[0] = ctx.rax;
@@ -33,49 +33,6 @@ pub fn fill_regs(regs: &mut X86_64CoreRegs, ctx: &DataT) {
 }
 
 impl EdbgTarget {
-    pub fn single_step_thread(&mut self, curr_pc: u64) -> Result<()> {
-        debug!("Current PC: {:#x}", curr_pc);
-
-        let next_pc = self
-            .calculation_next_pc(curr_pc)
-            .map_err(|e| anyhow!("Failed to calculate next PC for x86_64 single step: {}", e))?;
-
-        debug!("Calculated Next PC: {:#x}", next_pc);
-
-        if self.active_breakpoints.contains_key(&next_pc) {
-            info!(
-                "Next PC {:#x} already has a SW breakpoint, skipping set.",
-                next_pc
-            );
-            return Ok(());
-        }
-
-        match self.internel_attach_uprobe(next_pc) {
-            Ok(link_id) => {
-                info!("Successfully attached UProbe at {:#x}", next_pc);
-                self.temp_step_breakpoints = Some((next_pc, BreakpointHandle::UProbe(link_id)));
-            }
-            Err(e) => {
-                warn!(
-                    "Failed to attach UProbe at {:#x}: {}. Checking for special cases...",
-                    next_pc, e
-                );
-                if next_pc == curr_pc {
-                    bail!(
-                        "Stuck in a loop: Cannot attach breakpoint at {:#x} and next PC is same.",
-                        next_pc
-                    );
-                }
-                info!(
-                    "Skipping un-attachable instruction at {:#x}, recursively stepping...",
-                    next_pc
-                );
-                self.single_step_thread(next_pc)?;
-            }
-        }
-        Ok(())
-    }
-
     fn create_capstone() -> Result<Capstone> {
         Capstone::new()
             .x86()
