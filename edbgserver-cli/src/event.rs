@@ -109,7 +109,7 @@ impl BlockingEventLoop for EdbgEventLoop {
             "GDB sent interrupt (Ctrl-C), stopping target pid {}",
             target.get_pid()?
         );
-        send_sig_to_process(target.get_pid()?, &Signal::SIGINT);
-        Ok(Some(MultiThreadStopReason::Signal(Signal::SIGINT)))
+        send_sig_to_process(target.get_pid()?, &Signal::SIGSTOP);
+        Ok(Some(MultiThreadStopReason::Signal(Signal::SIGSTOP)))
     }
 }
