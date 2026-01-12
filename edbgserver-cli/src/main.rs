@@ -31,7 +31,7 @@ fn get_styles() -> Styles {
 #[derive(Debug, Parser)]
 #[command(
     version,
-    about = "An eBPF-based GDB Server",
+    about = "A GDB stub powered by eBPF.",
     styles = get_styles(),
     long_about = r#"An eBPF-based GDB Stub Server designed for analyzing running processes.
 
@@ -54,7 +54,7 @@ Logging & Debugging:
 struct Cli {
     /// The TCP port where the GDB server will listen for incoming connections.
     #[arg(long, default_value_t = 3333)]
-    port: u32,
+    port: u16,
 
     /// The Process ID (PID) of the target process to attach to.
     /// If omitted, the server will automatically attach to the first process that triggers the breakpoint in the specified binary.
@@ -62,30 +62,30 @@ struct Cli {
     pid: Option<u32>,
 
     /// Path to the target binary or library.
-    #[arg(short, long)]
+    #[arg(short, long, value_hint = clap::ValueHint::FilePath)]
     target: String,
 
     /// [Android only] The package name of target application.
     #[arg(short = 'p', long)]
     package: Option<String>,
 
-    /// The initial breakpoint address (file offset).
+    /// The initial breakpoint address (virtual address).
     /// The server will set a UProbe at this location to intercept execution and wait for GDB.
     /// Supports hexadecimal (e.g., 0x400000) or decimal input.
-    #[arg(short, long, value_parser = maybe_hex::<u64>)]
+    #[arg(short = 'b', long = "break", value_parser = maybe_hex::<u64>)]
     break_point: u64,
 
     /// Run the server in multi-threaded mode.
-    #[arg(short, long, default_value_t = false)]
+    #[arg(short = 'm', long)]
     multi_thread: bool,
 
     /// Disable filtering of memory maps when attaching to the target process.
     /// By default, the server filters out irrelevant memory maps to improve performance.
-    #[arg(short = 'f', long, default_value_t = false)]
+    #[arg(long = "no-filter")]
     map_filter_off: bool,
 
     /// force using uprobe implementation for single-step (perf by default)
-    #[arg(short = 'u', long, default_value_t = false)]
+    #[arg(long = "use-uprobe")]
     step_use_uprobe: bool,
 }
 

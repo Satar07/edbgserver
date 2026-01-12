@@ -1,6 +1,6 @@
 # edbgserver
 
-A debugger server implemented using **eBPF**, designed to operate **without `ptrace`** system calls. It currently supports the **ARM64 (AArch64)** architecture and is compatible with both **Android** and **Linux** environments.
+A debugger server implemented using **eBPF**, designed to operate **without `ptrace`** system calls. It currently supports the Arm64 and x86_64 architecture and is compatible with both **Android** and **Linux** environments.
 
 ## Acknowledgments
 
@@ -20,26 +20,24 @@ Due to current eBPF subsystem limitations, the following behaviors are not yet s
 
 - **Register Modification:** Modifying CPU register values is currently not possible.
 - **Cross-Thread Register Access:** Reading registers from threads other than the one currently triggered (potential for future resolution).
-- **Thread Isolation:** Running/stepping a specific single thread independently.
-- **APK-mmaped Breakpoints:** Adding `uprobe` breakpoints to `.so` files that are directly `mmap`\-ed from an APK (potential for future resolution).
 
 ## Usage
 
-```
-pwndbg> set osabi GNU/Linux
+```sh
 pwndbg> target remote :3333
+pwndbg> breakrva 0x18A8 libsupervipplayer.so
 ```
 
 or maybe:
 
-```
+```sh
 mkdir -p ./android_sysroot/system
 cd ./android_sysroot
-
 adb pull /system/lib64 system/lib64
 adb pull /system/bin system/bin
 adb pull /apex apex
-(gdb) set sysroot ~/android_sysroot
+
+pwndbg> set sysroot android_sysroot/
 ```
 
 ## Prerequisites
@@ -61,7 +59,7 @@ adb pull /apex apex
 
 Use `cargo build`, `cargo check`, etc. as normal. Run your program with:
 
-```shell
+```sh
 cargo c --target aarch64-unknown-linux-musl
 cargo run --release --target aarch64-unknown-linux-musl
 cargo build --release --target aarch64-unknown-linux-musl
@@ -74,7 +72,7 @@ program.
 
 [Config file](.cargo/config.toml) as decribe this action like this:
 
-```shell
+```sh
 ARCH=aarch64
 CC=${ARCH}-linux-musl-gcc cargo c \
   --target=${ARCH}-unknown-linux-musl \

@@ -269,7 +269,9 @@ impl EdbgTarget {
             .calculation_next_pc(curr_pc)
             .map_err(|e| anyhow!("Failed to calculate next PC for single step: {}", e))?;
         debug!("Next PC calculated: {:#x}", next_pc);
-        if self.active_breakpoints.contains_key(&next_pc) {
+        if self.active_sw_breakpoints.contains_key(&next_pc)
+            || self.active_hw_breakpoints.contains_key(&next_pc)
+        {
             return Ok(());
         }
         let add_breakpoint_func = if self.step_use_uprobe {

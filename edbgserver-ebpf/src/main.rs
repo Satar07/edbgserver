@@ -156,9 +156,17 @@ fn try_perf_callback(ctx: &PerfEventContext) -> Result<i64, i64> {
     debug!(ctx, "entered perf callback");
     let current_tid = bpf_get_current_pid_tgid() as u32;
     let filter = THREAD_FILTER.get(0).unwrap_or(&ThreadFilter::None);
+    match filter {
+        ThreadFilter::None => debug!(ctx, "thread filter is none"),
+        ThreadFilter::Some(t) => debug!(ctx, "thread filter tid: {}", *t),
+    }
     if let ThreadFilter::Some(tid) = filter
         && *tid != current_tid
     {
+        debug!(
+            ctx,
+            "thread id {} does not match filter {}", current_tid, *tid
+        );
         return Ok(0);
     }
     if let Some(mut entry) = EVENTS.reserve::<DataT>(0) {

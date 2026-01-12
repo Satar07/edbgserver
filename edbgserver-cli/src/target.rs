@@ -44,7 +44,8 @@ pub struct EdbgTarget {
     pub ring_buf: RingBuf<MapData>,
     pub notifier: AsyncFd<OwnedFd>,
     thread_filter: Array<MapData, ThreadFilter>,
-    active_breakpoints: HashMap<u64, breakpoint::BreakpointHandle>,
+    active_sw_breakpoints: HashMap<u64, breakpoint::BreakpointHandle>,
+    active_hw_breakpoints: HashMap<u64, breakpoint::BreakpointHandle>,
     active_watchpoint: HashMap<u64, breakpoint::WatchPointMeta>,
     temp_step_breakpoints: Option<(u64, breakpoint::BreakpointHandle)>,
     init_probe_link_id: Option<breakpoint::BreakpointHandle>,
@@ -105,7 +106,8 @@ impl EdbgTarget {
             ring_buf: ringbuf,
             notifier,
             thread_filter,
-            active_breakpoints: HashMap::new(),
+            active_sw_breakpoints: HashMap::new(),
+            active_hw_breakpoints: HashMap::new(),
             active_watchpoint: HashMap::new(),
             temp_step_breakpoints: None,
             init_probe_link_id: None,
@@ -271,7 +273,7 @@ impl MultiThreadBase for EdbgTarget {
         {
             Ok(_) => Ok(()),
             Err(e) => {
-                warn!("Failed to write memory at {:x}: {}", start_addr, e);
+                warn!("Failed to write memory at {:#x}: {:?}", start_addr, e);
                 Err(TargetError::Io(e))
             }
         }
