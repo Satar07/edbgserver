@@ -4,7 +4,11 @@ use capstone::{
     prelude::*,
 };
 use edbgserver_common::DataT;
-use log::{debug, error};
+use gdbstub::{
+    common::Tid,
+    target::{TargetError, TargetResult, ext::base::single_register_access::SingleRegisterAccess},
+};
+use log::{debug, error, warn};
 
 use crate::target::EdbgTarget;
 
@@ -92,6 +96,53 @@ pub fn fill_regs(regs: &mut AArch64MinimalRegs, ctx: &DataT) {
     regs.pc = ctx.pc;
     regs.sp = ctx.sp;
     regs.cpsr = ctx.pstate as u32;
+}
+
+impl SingleRegisterAccess<Tid> for EdbgTarget {
+    fn read_register(
+        &mut self,
+        tid: Tid,
+        reg_id: <Self::Arch as gdbstub::arch::Arch>::RegId,
+        buf: &mut [u8],
+    ) -> TargetResult<usize, Self> {
+        let ctx = match &self.context {
+            Some(c) if !self.is_multi_thread || c.tid == tid.get() as u32 => c,
+            _ => {
+                warn!("read_register: no context with tid {}", tid.get());
+                return Ok(0);
+            }
+        };
+
+        match reg_id {
+            gdbstub_arch::aarch64::reg::id::AArch64RegId::X(n) => {
+                buf.copy_from_slice(&ctx.regs[n as usize].to_le_bytes());
+                Ok(8)
+            }
+            gdbstub_arch::aarch64::reg::id::AArch64RegId::Sp => {
+                buf.copy_from_slice(&ctx.sp.to_le_bytes());
+                Ok(8)
+            }
+            gdbstub_arch::aarch64::reg::id::AArch64RegId::Pc => {
+                buf.copy_from_slice(&ctx.pc.to_le_bytes());
+                Ok(8)
+            }
+            gdbstub_arch::aarch64::reg::id::AArch64RegId::Pstate => {
+                buf.copy_from_slice(&ctx.pstate.to_le_bytes());
+                Ok(8)
+            }
+            _ => Ok(0),
+        }
+    }
+
+    fn write_register(
+        &mut self,
+        _tid: Tid,
+        _reg_id: <Self::Arch as gdbstub::arch::Arch>::RegId,
+        _val: &[u8],
+    ) -> TargetResult<(), Self> {
+        warn!("write single register not fully implemented (requires ptrace or inline hooking)");
+        Err(TargetError::NonFatal)
+    }
 }
 
 impl EdbgTarget {

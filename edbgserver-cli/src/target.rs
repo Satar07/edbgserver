@@ -230,7 +230,7 @@ impl MultiThreadBase for EdbgTarget {
         _tid: gdbstub::common::Tid,
     ) -> TargetResult<(), Self> {
         warn!("write_registers not fully implemented (requires ptrace or inline hooking)");
-        Ok(())
+        Err(TargetError::NonFatal)
     }
 
     fn read_addrs(
@@ -308,6 +308,15 @@ impl MultiThreadBase for EdbgTarget {
 
     #[inline(always)]
     fn support_resume(&mut self) -> Option<MultiThreadResumeOps<'_, Self>> {
+        Some(self)
+    }
+
+    #[inline(always)]
+    fn support_single_register_access(
+        &mut self,
+    ) -> Option<
+        gdbstub::target::ext::base::single_register_access::SingleRegisterAccessOps<'_, Tid, Self>,
+    > {
         Some(self)
     }
 }

@@ -5,7 +5,14 @@ use capstone::{
     prelude::*,
 };
 use edbgserver_common::DataT;
-use gdbstub_arch::x86::reg::X86_64CoreRegs;
+use gdbstub::{
+    common::Tid,
+    target::{TargetError, TargetResult, ext::base::single_register_access::SingleRegisterAccess},
+};
+use gdbstub_arch::x86::reg::{
+    X86_64CoreRegs,
+    id::{X86_64CoreRegId, X86SegmentRegId},
+};
 use log::{debug, error, trace, warn};
 
 use crate::target::EdbgTarget;
@@ -30,6 +37,79 @@ pub fn fill_regs(regs: &mut X86_64CoreRegs, ctx: &DataT) {
 
     regs.rip = ctx.rip;
     regs.eflags = ctx.eflags as u32;
+}
+
+impl SingleRegisterAccess<Tid> for EdbgTarget {
+    fn read_register(
+        &mut self,
+        tid: Tid,
+        reg_id: <Self::Arch as gdbstub::arch::Arch>::RegId,
+        buf: &mut [u8],
+    ) -> TargetResult<usize, Self> {
+        let ctx = match &self.context {
+            Some(c) if !self.is_multi_thread || c.tid == tid.get() as u32 => c,
+            _ => {
+                warn!("read_register: no context with tid {}", tid.get());
+                return Ok(0);
+            }
+        };
+
+        match reg_id {
+            X86_64CoreRegId::Gpr(i) => {
+                // RAX, RBX, RCX, RDX, RSI, RDI, RBP, RSP, r8-r15
+                let val = match i {
+                    0 => ctx.rax,
+                    1 => ctx.rbx,
+                    2 => ctx.rcx,
+                    3 => ctx.rdx,
+                    4 => ctx.rsi,
+                    5 => ctx.rdi,
+                    6 => ctx.rbp,
+                    7 => ctx.rsp,
+                    8 => ctx.r8,
+                    9 => ctx.r9,
+                    10 => ctx.r10,
+                    11 => ctx.r11,
+                    12 => ctx.r12,
+                    13 => ctx.r13,
+                    14 => ctx.r14,
+                    15 => ctx.r15,
+                    _ => return Ok(0),
+                };
+                buf.copy_from_slice(&val.to_le_bytes());
+                Ok(8)
+            }
+            X86_64CoreRegId::Rip => {
+                buf.copy_from_slice(&ctx.rip.to_le_bytes());
+                Ok(8)
+            }
+            X86_64CoreRegId::Eflags => {
+                let val = ctx.eflags as u32;
+                buf.copy_from_slice(&val.to_le_bytes());
+                Ok(4)
+            }
+            X86_64CoreRegId::Segment(segments) => {
+                let val = match segments {
+                    X86SegmentRegId::CS => ctx.cs,
+                    X86SegmentRegId::SS => ctx.ss,
+                    _ => 0,
+                };
+                buf.copy_from_slice(&(val as u32).to_le_bytes());
+                Ok(4)
+            }
+            _ => Ok(0),
+        }
+    }
+
+    fn write_register(
+        &mut self,
+        _tid: Tid,
+        _reg_id: <Self::Arch as gdbstub::arch::Arch>::RegId,
+        _val: &[u8],
+    ) -> TargetResult<(), Self> {
+        warn!("write single register not fully implemented (requires ptrace or inline hooking)");
+        Err(TargetError::NonFatal)
+    }
 }
 
 impl EdbgTarget {
