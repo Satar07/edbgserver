@@ -35,11 +35,11 @@ or maybe:
 
 ```sh
 mkdir -p ./android_sysroot/system
+mkdir -p ./android_sysroot/apex/com.android.runtime/
 cd ./android_sysroot
 adb pull /system/lib64 system/lib64
 adb pull /system/bin system/bin
-adb pull /apex apex
-
+adb pull /apex/com.android.runtime/ apex/com.android.runtime/
 pwndbg> set sysroot android_sysroot/
 pwndbg> set breakpoint auto-hw on
 ```

@@ -294,22 +294,21 @@ impl EdbgTarget {
         debug!("Attaching perf event to {:#x} for process {}", addr, pid);
         let config = PerfEventConfig::Breakpoint(BreakpointConfig::Instruction { address: addr });
         let sample_policy = SamplePolicy::Period(1);
-        let tasks = procfs::process::Process::new(pid as i32)
-            .map_err(|e| anyhow::anyhow!("Failed to open process {}: {}", pid, e))?
-            .tasks()
-            .map_err(|e| anyhow::anyhow!("Failed to read tasks for pid {}: {}", pid, e))?;
+        let tasks = if self.is_multi_thread {
+            procfs::process::Process::new(pid as i32)
+                .map_err(|e| anyhow::anyhow!("Failed to open process {}: {}", pid, e))?
+                .tasks()?
+                .filter_map(|t| t.ok())
+                .map(|t| t.tid as u32)
+                .collect::<Vec<_>>()
+        } else {
+            vec![self.bound_tid.expect("bound_tid is not set")]
+        };
         let mut links = Vec::new();
         let prog = self.get_perf_event_program();
-        for task in tasks {
-            let tid = match task {
-                Ok(t) => t.tid,
-                Err(e) => {
-                    warn!("Skipping unreadable task for pid {}: {}", pid, e);
-                    continue;
-                }
-            };
+        for tid in tasks {
             let scope = PerfEventScope::OneProcess {
-                pid: tid as u32,
+                pid: tid,
                 cpu: None,
             };
             let link_id = prog
@@ -357,23 +356,22 @@ impl EdbgTarget {
             length,
         });
         let pid = self.get_pid()?;
-        let tasks = procfs::process::Process::new(pid as i32)
-            .map_err(|e| anyhow::anyhow!("Failed to open process {}: {}", pid, e))?
-            .tasks()
-            .map_err(|e| anyhow::anyhow!("Failed to read tasks for pid {}: {}", pid, e))?;
+        let tasks = if self.is_multi_thread {
+            procfs::process::Process::new(pid as i32)
+                .map_err(|e| anyhow::anyhow!("Failed to open process {}: {}", pid, e))?
+                .tasks()?
+                .filter_map(|t| t.ok())
+                .map(|t| t.tid as u32)
+                .collect::<Vec<_>>()
+        } else {
+            vec![self.bound_tid.expect("bound_tid is not set")]
+        };
         let mut links = Vec::new();
         let prog = self.get_perf_event_program();
         let sample_policy = SamplePolicy::Period(1); // sample every events
-        for task in tasks {
-            let tid = match task {
-                Ok(t) => t.tid,
-                Err(e) => {
-                    warn!("Skipping unreadable task for pid {}: {}", pid, e);
-                    continue;
-                }
-            };
+        for tid in tasks {
             let scope = PerfEventScope::OneProcess {
-                pid: tid as u32,
+                pid: tid,
                 cpu: None,
             };
             let link_id = prog
