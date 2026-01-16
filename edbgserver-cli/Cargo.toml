@@ -2,7 +2,8 @@
 name = "edbgserver-cli"
 version = "0.1.0"
 edition.workspace = true
-
+description = "CLI for edbgserver: A GDB stub powered by eBPF"
+repository = "https://github.com/Satar07/edbgserver"
 license.workspace = true
 
 [dependencies]

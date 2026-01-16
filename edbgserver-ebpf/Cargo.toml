@@ -2,6 +2,9 @@
 name = "edbgserver-ebpf"
 version = "0.1.0"
 edition.workspace = true
+description = "EBPF library for edbgserver"
+repository = "https://github.com/Satar07/edbgserver"
+publish = true
 
 [dependencies]
 edbgserver-common = { path = "../edbgserver-common" }

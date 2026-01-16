@@ -2,7 +2,8 @@
 name = "edbgserver-common"
 version = "0.1.0"
 edition.workspace = true
-
+description = "Common library for edbgserver"
+repository = "https://github.com/Satar07/edbgserver"
 license.workspace = true
 
 [features]
