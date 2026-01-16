@@ -10,9 +10,13 @@ use clap_num::maybe_hex;
 use gdbstub::stub::{DisconnectReason, GdbStubBuilder};
 use log::{debug, error, info, warn};
 use nix::sys::resource::{self, Resource, setrlimit};
-use tokio::net::TcpListener;
+use tokio::net::{TcpListener, UnixListener};
 
-use crate::{connection::BufferedConnection, event::EdbgEventLoop, target::EdbgTarget};
+use crate::{
+    connection::{BufferedConnection, GdbStream},
+    event::EdbgEventLoop,
+    target::EdbgTarget,
+};
 mod connection;
 mod event;
 mod resolve_target;
@@ -52,15 +56,6 @@ Logging & Debugging:
 "#
 )]
 struct Cli {
-    /// The TCP port where the GDB server will listen for incoming connections.
-    #[arg(long, default_value_t = 3333)]
-    port: u16,
-
-    /// The Process ID (PID) of the target process to attach to.
-    /// If omitted, the server will automatically attach to the first process that triggers the breakpoint in the specified binary.
-    #[arg(short = 'P', long)]
-    pid: Option<u32>,
-
     /// Path to the target binary or library.
     #[arg(short, long, value_hint = clap::ValueHint::FilePath)]
     target: String,
@@ -74,6 +69,21 @@ struct Cli {
     /// Supports hexadecimal (e.g., 0x400000) or decimal input.
     #[arg(short = 'b', long = "break", value_parser = maybe_hex::<u64>)]
     break_point: u64,
+
+    /// The TCP port where the GDB server will listen for incoming connections.
+    #[arg(long, default_value_t = 3333)]
+    port: u16,
+
+    /// Use Unix Domain Socket instead of TCP.
+    /// If the path starts with '@', it is treated as an Abstract Namespace Socket.
+    /// If no value is provided, it defaults to the abstract socket "@edbg".
+    #[arg(short, long, value_hint = clap::ValueHint::FilePath, num_args = 0..=1, default_missing_value = "@edbg")]
+    uds: Option<String>,
+
+    /// The Process ID (PID) of the target process to attach to.
+    /// If omitted, the server will automatically attach to the first process that triggers the breakpoint in the specified binary.
+    #[arg(short = 'P', long)]
+    pid: Option<u32>,
 
     /// Run the server in multi-threaded mode.
     #[arg(short = 'm', long)]
@@ -117,28 +127,48 @@ async fn main() -> Result<()> {
         Err(e) => bail!("Failed to catch initial trap: {}", e),
     }
 
-    let listen_addr = format!("0.0.0.0:{}", opt.port);
-    let listener = TcpListener::bind(&listen_addr)
-        .await
-        .context("Failed to bind TCP listener")?;
+    let connection_stream = if let Some(uds_path) = opt.uds {
+        let uds_path = if let Some(name) = uds_path.strip_prefix('@') {
+            "\0".to_owned() + name
+        } else {
+            let _ = std::fs::remove_file(&uds_path);
+            uds_path
+        };
+        let listener =
+            UnixListener::bind(&uds_path).context("Failed to bind Unix Domain Socket listener")?;
+        println!(
+            "Step 2: Target Ready. Waiting for GDB connect on unix socket: {}",
+            uds_path
+        );
+        let (stream, _addr) = listener
+            .accept()
+            .await
+            .context("Failed to accept GDB connection on UDS")?;
+        let std_stream = stream.into_std()?;
+        std_stream.set_nonblocking(false)?;
+        GdbStream::Unix(std_stream)
+    } else {
+        let listen_addr = format!("0.0.0.0:{}", opt.port);
+        let listener = TcpListener::bind(&listen_addr)
+            .await
+            .context("Failed to bind TCP listener")?;
+        println!(
+            "Step 2: Target Ready. Waiting for GDB connect on {}",
+            listen_addr
+        );
+        let (stream, a) = listener
+            .accept()
+            .await
+            .context("Failed to accept GDB connection")?;
+        info!("GDB connected from {}", a);
 
-    println!(
-        "Step 2: Target Ready. Waiting for GDB connect on {}...",
-        listen_addr
-    );
+        let std_stream = stream.into_std()?;
+        std_stream.set_nonblocking(false)?;
 
-    let stream = match listener.accept().await {
-        Ok((s, a)) => {
-            info!("GDB connected from {}", a);
-            s
-        }
-        Err(e) => bail!("Failed to accept GDB connection: {}", e),
+        GdbStream::Tcp(std_stream)
     };
 
-    let std_stream = stream.into_std()?;
-    std_stream.set_nonblocking(false)?;
-
-    let connection = BufferedConnection::new(std_stream)?;
+    let connection = BufferedConnection::new(connection_stream)?;
     let gdb = GdbStubBuilder::new(connection)
         .packet_buffer_size(4096)
         .build()?;
