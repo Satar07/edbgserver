@@ -146,7 +146,6 @@ impl EdbgTarget {
 
 impl Target for EdbgTarget {
     type Arch = TargetArch;
-
     type Error = anyhow::Error;
 
     fn base_ops(&mut self) -> BaseOps<'_, Self::Arch, Self::Error> {

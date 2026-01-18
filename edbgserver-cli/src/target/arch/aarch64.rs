@@ -15,10 +15,10 @@ use crate::target::EdbgTarget;
 pub struct LinuxAArch64Core {}
 
 impl gdbstub::arch::Arch for LinuxAArch64Core {
-    type Usize = u64;
-    type Registers = AArch64MinimalRegs;
-    type RegId = gdbstub_arch::aarch64::reg::id::AArch64RegId;
     type BreakpointKind = usize;
+    type RegId = gdbstub_arch::aarch64::reg::id::AArch64RegId;
+    type Registers = AArch64MinimalRegs;
+    type Usize = u64;
 
     fn target_description_xml() -> Option<&'static str> {
         static DESCRIPTION_XML: &str = concat!(
@@ -154,6 +154,7 @@ impl EdbgTarget {
             .build()
             .map_err(|e| anyhow!("Failed to create Capstone instance: {}", e))
     }
+
     fn read_instruction(&self, pc: u64) -> Result<u32> {
         let mut buf = [0u8; 4];
         use process_memory::{CopyAddress, TryIntoProcessHandle};

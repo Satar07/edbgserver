@@ -35,9 +35,9 @@ fn get_styles() -> Styles {
 #[derive(Debug, Parser)]
 #[command(
     version,
-    about = "A GDB stub powered by eBPF.",
+    about = "An eBPF-powered debugger server",
     styles = get_styles(),
-    long_about = r#"An eBPF-based GDB Stub Server designed for analyzing running processes.
+    long_about = r#"An eBPF-powered debugger server
 
 Operational Workflow:
   Step 1: Wait for Target Initial Trap
@@ -51,7 +51,7 @@ Logging & Debugging:
   Available levels: error, warn, info, debug, trace.
 
   Example:
-    RUST_LOG=debug ./edbgserver -t ./target -b 0x401000
+    RUST_LOG=info ./edbgserver -t ./target -b 0x401000
     ./edbgserver -p io.cyril.supervipplayer -t libsupervipplayer.so -b 0x17E0
 "#
 )]
@@ -65,8 +65,9 @@ struct Cli {
     package: Option<String>,
 
     /// The initial breakpoint address (virtual address).
-    /// The server will set a UProbe at this location to intercept execution and wait for GDB.
-    /// Supports hexadecimal (e.g., 0x400000) or decimal input.
+    /// The server will set a UProbe at this location to intercept execution and
+    /// wait for GDB. Supports hexadecimal (e.g., 0x400000) or decimal
+    /// input.
     #[arg(short = 'b', long = "break", value_parser = maybe_hex::<u64>)]
     break_point: u64,
 
@@ -75,13 +76,15 @@ struct Cli {
     port: u16,
 
     /// Use Unix Domain Socket instead of TCP.
-    /// If the path starts with '@', it is treated as an Abstract Namespace Socket.
-    /// If no value is provided, it defaults to the abstract socket "@edbg".
+    /// If the path starts with '@', it is treated as an Abstract Namespace
+    /// Socket. If no value is provided, it defaults to the abstract socket
+    /// "@edbg".
     #[arg(short, long, value_hint = clap::ValueHint::FilePath, num_args = 0..=1, default_missing_value = "@edbg")]
     uds: Option<String>,
 
     /// The Process ID (PID) of the target process to attach to.
-    /// If omitted, the server will automatically attach to the first process that triggers the breakpoint in the specified binary.
+    /// If omitted, the server will automatically attach to the first process
+    /// that triggers the breakpoint in the specified binary.
     #[arg(short = 'P', long)]
     pid: Option<u32>,
 
@@ -90,7 +93,8 @@ struct Cli {
     multi_thread: bool,
 
     /// Disable filtering of memory maps when attaching to the target process.
-    /// By default, the server filters out irrelevant memory maps to improve performance.
+    /// By default, the server filters out irrelevant memory maps to improve
+    /// performance.
     #[arg(long = "no-filter")]
     map_filter_off: bool,
 

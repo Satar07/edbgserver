@@ -56,6 +56,7 @@ impl DataT {
     pub fn pc(&self) -> u64 {
         self.pc
     }
+
     #[cfg(target_arch = "x86_64")]
     pub fn pc(&self) -> u64 {
         self.rip

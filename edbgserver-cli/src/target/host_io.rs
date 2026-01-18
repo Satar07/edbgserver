@@ -15,26 +15,32 @@ impl HostIo for EdbgTarget {
     fn support_open(&mut self) -> Option<HostIoOpenOps<'_, Self>> {
         Some(self)
     }
+
     #[inline(always)]
     fn support_close(&mut self) -> Option<HostIoCloseOps<'_, Self>> {
         Some(self)
     }
+
     #[inline(always)]
     fn support_pread(&mut self) -> Option<HostIoPreadOps<'_, Self>> {
         Some(self)
     }
+
     #[inline(always)]
     fn support_pwrite(&mut self) -> Option<HostIoPwriteOps<'_, Self>> {
         Some(self)
     }
+
     #[inline(always)]
     fn support_fstat(&mut self) -> Option<HostIoFstatOps<'_, Self>> {
         Some(self)
     }
+
     #[inline(always)]
     fn support_readlink(&mut self) -> Option<HostIoReadlinkOps<'_, Self>> {
         Some(self)
     }
+
     #[inline(always)]
     fn support_unlink(&mut self) -> Option<HostIoUnlinkOps<'_, Self>> {
         Some(self)

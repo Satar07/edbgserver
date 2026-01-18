@@ -173,9 +173,9 @@ impl EdbgEventLoop {
 }
 
 impl BlockingEventLoop for EdbgEventLoop {
-    type Target = EdbgTarget;
     type Connection = BufferedConnection;
     type StopReason = MultiThreadStopReason<u64>;
+    type Target = EdbgTarget;
 
     fn wait_for_stop_reason(
         target: &mut Self::Target,
