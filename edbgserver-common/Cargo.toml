@@ -1,6 +1,6 @@
 [package]
 name = "edbgserver-common"
-version = "1.0.0"
+version = "1.0.1"
 edition.workspace = true
 description = "Common library for edbgserver"
 repository = "https://github.com/Satar07/edbgserver"
