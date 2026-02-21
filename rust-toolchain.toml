@@ -1,4 +1,4 @@
 [toolchain]
-channel = "nightly"
+channel = "nightly-2025-12-10"
 components = [ "rust-src", "rust-analyzer", "clippy" ]
 targets = [ "aarch64-unknown-linux-musl", "x86_64-unknown-linux-musl" ]
