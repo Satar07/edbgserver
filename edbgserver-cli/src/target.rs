@@ -219,35 +219,10 @@ impl MultiThreadBase for EdbgTarget {
         debug!("is_multi_thread: {}", self.is_multi_thread);
         debug!("requested tid: {}", tid);
         // open /proc/pid/tasks/tid/syscall to get pc
-        let Some(pid) = self.bound_pid else {
-            error!("pid not bound yet");
-            return Err(TargetError::NonFatal);
-        };
-        let Some(content) =
-            std::fs::read_to_string(format!("/proc/{}/task/{}/syscall", pid, tid)).ok()
-        else {
-            error!("failed to read /proc/{}/task/{}/syscall", pid, tid);
-            return Err(TargetError::NonFatal);
-        };
-        let contents: Vec<_> = content.split_whitespace().collect();
-        if contents.len() < 2 {
-            error!(
-                "invalid syscall content: len is {}, content: {}",
-                contents.len(),
-                content
-            );
-            return Err(TargetError::NonFatal);
-        }
-        let parse_hex = |s: &str| -> u64 {
-            u64::from_str_radix(s.trim_start_matches("0x"), 16).unwrap_or_else(|e| {
-                error!("Failed to parse hex: {}. String: {}", e, s);
-                0
-            })
-        };
-        let sp = parse_hex(contents[contents.len() - 2]);
-        let pc = parse_hex(contents[contents.len() - 1]);
-
-        debug!("read sp: {:#x}, pc: {:#x}", sp, pc);
+        let (sp, pc) = self.get_thread_sp_pc(tid.get() as u32).map_err(|e| {
+            error!("Failed to get SP/PC for tid {}: {}", tid, e);
+            TargetError::NonFatal
+        })?;
         arch::fill_regs_minimal(regs, sp, pc);
         Ok(())
     }

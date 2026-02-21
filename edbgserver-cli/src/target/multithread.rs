@@ -123,7 +123,18 @@ impl MultiThreadResume for EdbgTarget {
                 }
                 ThreadAction::Step(signal) => {
                     info!("Single stepping thread {} with signal {:?}", tid, signal);
-                    self.single_step_thread(tid, self.context.unwrap().pc())?;
+                    let (_sp, pc) = match self.get_thread_sp_pc(tid) {
+                        Ok(sp_pc) => sp_pc,
+                        Err(e) => {
+                            warn!(
+                                "Failed to get PC for TID {}: {}. Falling back to continue.",
+                                tid, e
+                            );
+                            dispatch_signal(tid, signal.as_ref());
+                            continue;
+                        }
+                    };
+                    self.single_step_thread(tid, pc)?;
                     dispatch_signal(tid, signal.as_ref());
                 }
             }
@@ -273,6 +284,24 @@ impl EdbgTarget {
             vec![NonZero::new(self.get_tid()? as usize).unwrap()]
         };
         Ok(tasks)
+    }
+
+    pub fn get_thread_sp_pc(&self, tid: u32) -> Result<(u64, u64)> {
+        let parse_hex = |s: &str| -> u64 {
+            u64::from_str_radix(s.trim_start_matches("0x").trim_start_matches("-"), 16)
+                .unwrap_or_else(|e| {
+                    error!("Failed to parse hex: {}. String: {}", e, s);
+                    0
+                })
+        };
+        let nums: Vec<_> = std::fs::read_to_string(format!("/proc/{}/syscall", tid))?
+            .split_whitespace()
+            .map(parse_hex)
+            .collect();
+        match nums.as_slice() {
+            [.., sp, pc] => Ok((*sp, *pc)),
+            _ => bail!("invalid syscall content"),
+        }
     }
 
     fn single_step_thread(&mut self, tid: u32, curr_pc: u64) -> Result<()> {
