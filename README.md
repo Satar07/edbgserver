@@ -24,7 +24,7 @@ Special thanks to [ShinoLeah](https://github.com/ShinoLeah) for the project [eDB
 ## Limitations
 
 - **Register Modification**: Due to eBPF constraints, CPU register values cannot be modified directly (can be bypassed using the `patch` command).
-- **Multi-threading**: Currently unable to read registers of threads other than the one that triggered the breakpoint (Work in Progress).
+- **Multi-threading**: Currently unable to read registers other than SP and PC for threads that did not trigger the breakpoint.
 - **Attachment**: Cannot "attach" to a running process immediately; must set an initial file breakpoint first (Work in Progress).
 - **Namespace Isolation**: Since eBPF programs run in kernel space and are unaware of namespaces, it is recommended **not** to run this in isolated environments like WSL or Docker, as thread IDs (TIDs) may be inaccurate. Linux VMs and Android `adb shell` are unaffected.
 - **Stability**: Single-stepping on `x86_64` has not been fully tested and may contain bugs.
