@@ -279,7 +279,7 @@ impl EdbgTarget {
         );
         let link_id = self
             .get_probe_program()
-            .attach(location, target.canonicalize()?, Some(target_pid), None)
+            .attach(location, target.canonicalize()?, Some(target_pid))
             .map_err(|e| {
                 error!(
                     "aya uprobe attach failed. location: {:#x}, target: {:?}, pid: {}. error: {:#?}",
@@ -443,7 +443,6 @@ impl EdbgTarget {
             break_point,
             binary_target.canonicalize()?,
             target_pid,
-            None,
         )?;
         self.bound_pid = target_pid;
 

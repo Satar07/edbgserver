@@ -253,7 +253,7 @@ impl MultiThreadBase for EdbgTarget {
         {
             Ok(_) => Ok(data.len()),
             Err(e) => {
-                debug!("Failed to read memory at {:#x}: {}", start_addr, e); // that usual happends
+                trace!("Failed to read memory at {:#x}: {}", start_addr, e); // that usual happends
                 Err(TargetError::Io(e))
             }
         }

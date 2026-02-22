@@ -72,7 +72,6 @@ async fn test_breakpoint_signal() {
             "trigger_breakpoint",
             "/home/cyril/dev/learn/rust/edbgserver/edbgserver/edbgserver/tests/test_target/test_target",
             None,
-            None,
         )
         .expect("Failed to attach eBPF program");
     sleep(Duration::from_secs(1));
@@ -120,7 +119,6 @@ async fn test_breakpoint_ret_info() {
         .attach(
             "trigger_breakpoint",
             "/home/cyril/dev/learn/rust/edbgserver/edbgserver/edbgserver/tests/test_target/test_target",
-            None,
             None,
         )
         .expect("Failed to attach eBPF program");
