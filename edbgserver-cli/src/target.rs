@@ -53,7 +53,6 @@ pub struct EdbgTarget {
     exec_path: Option<PathBuf>,
     pub bound_pid: Option<u32>,
     pub bound_tid: Option<u32>,
-    process_memory_handle: Option<process_memory::ProcessHandle>,
     host_io_files: HashMap<u32, crate::virtual_file::VirtualFile>,
     next_host_io_fd: u32,
     pub is_multi_thread: bool,
@@ -111,7 +110,6 @@ impl EdbgTarget {
             exec_path: None,
             bound_pid: None,
             bound_tid: None,
-            process_memory_handle: None,
             host_io_files: HashMap::new(),
             next_host_io_fd: HOST_IO_FD_START,
             is_multi_thread,
@@ -145,6 +143,13 @@ impl EdbgTarget {
 
     pub fn get_tid(&self) -> Result<u32> {
         self.bound_tid.ok_or(anyhow!("Target bound tid is not set"))
+    }
+
+    pub fn get_process_handle(&self) -> Result<process_memory::ProcessHandle> {
+        let tid = self
+            .bound_tid
+            .ok_or(anyhow!("Target bound tid is not set"))?;
+        Ok((tid as i32, process_memory::Architecture::from_native()))
     }
 }
 
@@ -240,20 +245,19 @@ impl MultiThreadBase for EdbgTarget {
         &mut self,
         start_addr: <Self::Arch as gdbstub::arch::Arch>::Usize,
         data: &mut [u8],
-        _tid: gdbstub::common::Tid,
+        tid: gdbstub::common::Tid,
     ) -> TargetResult<usize, Self> {
-        use process_memory::CopyAddress;
-        match self
-            .process_memory_handle
-            .ok_or_else(|| {
-                error!("process handle not init! ");
+        use process_memory::{CopyAddress, TryIntoProcessHandle};
+        let process_handle = (tid.get() as process_memory::Pid)
+            .try_into_process_handle()
+            .map_err(|e| {
+                error!("Failed to get process handle for tid {}: {}", tid, e);
                 TargetError::NonFatal
-            })?
-            .copy_address(start_addr as usize, data)
-        {
+            })?;
+        match process_handle.copy_address(start_addr as usize, data) {
             Ok(_) => Ok(data.len()),
             Err(e) => {
-                trace!("Failed to read memory at {:#x}: {}", start_addr, e); // that usual happends
+                trace!("Failed to read memory at {:#x}: {}", start_addr, e);
                 Err(TargetError::Io(e))
             }
         }
@@ -263,13 +267,9 @@ impl MultiThreadBase for EdbgTarget {
         &mut self,
         start_addr: <Self::Arch as gdbstub::arch::Arch>::Usize,
         data: &[u8],
-        _tid: gdbstub::common::Tid,
+        tid: gdbstub::common::Tid,
     ) -> TargetResult<(), Self> {
-        let pid = self.get_pid().map_err(|e| {
-            error!("Failed to get pid for writing memory: {}", e);
-            TargetError::NonFatal
-        })?;
-        let path = format!("/proc/{}/mem", pid);
+        let path = format!("/proc/{}/mem", tid);
         use std::{
             fs::OpenOptions,
             io::{Seek, SeekFrom, Write},

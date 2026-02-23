@@ -508,9 +508,6 @@ impl EdbgTarget {
             self.bound_pid = Some(target_pid);
             self.bound_tid = Some(target_tid);
 
-            use process_memory::TryIntoProcessHandle;
-            self.process_memory_handle = (target_tid as i32).try_into_process_handle().ok();
-
             if let Err(e) = self.update_libraries_cache() {
                 error!("Failed to update libraries cache in init trap: {}", e);
             }

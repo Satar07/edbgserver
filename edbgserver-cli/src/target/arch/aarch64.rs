@@ -163,7 +163,7 @@ impl EdbgTarget {
     fn read_instruction(&self, pc: u64) -> Result<u32> {
         let mut buf = [0u8; 4];
         use process_memory::{CopyAddress, TryIntoProcessHandle};
-        let handle = (self.get_tid()? as i32).try_into_process_handle()?;
+        let handle = (self.get_tid()? as process_memory::Pid).try_into_process_handle()?;
         handle.copy_address(pc as usize, &mut buf)?;
         Ok(u32::from_le_bytes(buf))
     }

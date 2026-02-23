@@ -130,9 +130,9 @@ impl EdbgTarget {
     fn read_instruction_buf(&self, pc: u64) -> Result<[u8; 15]> {
         let mut buf = [0u8; 15];
         use process_memory::{CopyAddress, TryIntoProcessHandle};
-        let pid = self.get_tid()?;
+        let tid = self.get_tid()?;
         // trace!("[ReadMem] Reading 15 bytes from PID {} at {:#x}", pid, pc);
-        let handle = (pid as i32).try_into_process_handle()?;
+        let handle = (tid as process_memory::Pid).try_into_process_handle()?;
         handle.copy_address(pc as usize, &mut buf)?;
         Ok(buf)
     }
@@ -185,7 +185,7 @@ impl EdbgTarget {
             X86Insn::X86_INS_RET | X86Insn::X86_INS_RETF | X86Insn::X86_INS_IRET => {
                 let mut stack_buf = [0u8; 8];
                 use process_memory::{CopyAddress, TryIntoProcessHandle};
-                let handle = (self.get_pid()? as i32).try_into_process_handle()?;
+                let handle = (self.get_tid()? as process_memory::Pid).try_into_process_handle()?;
                 handle.copy_address(context.rsp as usize, &mut stack_buf)?;
                 let ret_addr = u64::from_le_bytes(stack_buf);
                 debug!(
@@ -239,7 +239,8 @@ impl EdbgTarget {
 
                         let mut ptr_buf = [0u8; 8];
                         use process_memory::{CopyAddress, TryIntoProcessHandle};
-                        let handle = (self.get_pid()? as i32).try_into_process_handle()?;
+                        let handle =
+                            (self.get_tid()? as process_memory::Pid).try_into_process_handle()?;
 
                         match handle.copy_address(target_ptr_addr as usize, &mut ptr_buf) {
                             Ok(_) => {

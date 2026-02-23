@@ -105,8 +105,7 @@ impl EdbgTarget {
     fn read_struct<T: FromBytes + Copy>(&self, addr: u64) -> Result<T> {
         let mut buf = vec![0u8; std::mem::size_of::<T>()];
         use process_memory::CopyAddress;
-        self.process_memory_handle
-            .ok_or(anyhow!("process handle is not init"))?
+        self.get_process_handle()?
             .copy_address(addr as usize, buf.as_mut_slice())?;
         T::read_from_bytes(&buf).map_err(|_| anyhow!("Failed to parse struct from bytes"))
     }
@@ -114,8 +113,7 @@ impl EdbgTarget {
     fn read_cstring(&self, addr: u64, max_len: usize) -> Result<String> {
         let mut buf = vec![0u8; max_len];
         use process_memory::CopyAddress;
-        self.process_memory_handle
-            .ok_or(anyhow!("process handle is not init"))?
+        self.get_process_handle()?
             .copy_address(addr as usize, buf.as_mut_slice())?;
         if let Some(pos) = buf.iter().position(|&c| c == 0) {
             buf.truncate(pos);

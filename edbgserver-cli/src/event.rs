@@ -65,11 +65,12 @@ impl EdbgEventLoop {
     fn collect_valid_events(target: &mut EdbgTarget) -> Vec<DataT> {
         let mut pending_events = Vec::new();
 
+        let bound_tid = target.get_tid().ok();
         debug!(
             "bound tid: {:?}, bound pid: {:?}",
-            target.bound_tid, target.bound_pid
+            target.get_tid(),
+            target.get_pid()
         );
-        let bound_tid = target.get_tid().ok();
 
         // HACK: Handling PID/TID mismatch in Linux Namespaces (e.g., WSL, Docker).
         //
