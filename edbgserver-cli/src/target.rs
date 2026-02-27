@@ -322,4 +322,11 @@ impl MultiThreadBase for EdbgTarget {
     > {
         Some(self)
     }
+
+    #[inline(always)]
+    fn support_thread_extra_info(
+        &mut self,
+    ) -> Option<gdbstub::target::ext::thread_extra_info::ThreadExtraInfoOps<'_, Self>> {
+        Some(self)
+    }
 }

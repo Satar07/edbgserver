@@ -1,4 +1,4 @@
-use std::{collections::HashSet, ffi::OsStr, num::NonZero, os::unix::ffi::OsStrExt, process};
+use std::{collections::HashSet, ffi::OsStr, fs, num::NonZero, os::unix::ffi::OsStrExt, process};
 
 use anyhow::{Context, Result, anyhow, bail};
 use gdbstub::{
@@ -10,6 +10,7 @@ use gdbstub::{
                 MultiThreadResume, MultiThreadSchedulerLocking, MultiThreadSingleStep,
             },
             extended_mode::{CurrentActivePid, ExtendedMode, ShouldTerminate},
+            thread_extra_info::ThreadExtraInfo,
         },
     },
 };
@@ -262,6 +263,21 @@ impl CurrentActivePid for EdbgTarget {
         trace!("Getting current active PID");
         let pid = self.get_pid()?;
         Ok(gdbstub::common::Pid::new(pid as usize).unwrap())
+    }
+}
+
+impl ThreadExtraInfo for EdbgTarget {
+    fn thread_extra_info(&self, tid: Tid, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        let path = format!("/proc/{}/comm", tid);
+        match fs::read(path) {
+            Ok(content) => {
+                let name = content.trim_ascii_start().trim_ascii_end();
+                let len = name.len().min(buf.len());
+                buf[..len].copy_from_slice(&name[..len]);
+                Ok(len)
+            }
+            Err(e) => bail!("Failed to read thread name for TID {}: {}", tid, e),
+        }
     }
 }
 
