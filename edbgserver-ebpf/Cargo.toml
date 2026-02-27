@@ -1,6 +1,6 @@
 [package]
 name = "edbgserver-ebpf"
-version = "1.0.1"
+version = "1.0.2"
 edition.workspace = true
 description = "EBPF library for edbgserver"
 repository = "https://github.com/Satar07/edbgserver"
