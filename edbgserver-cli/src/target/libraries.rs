@@ -1,7 +1,13 @@
 use std::{cmp::min, io::Read, iter};
 
 use anyhow::{Result, anyhow};
-use gdbstub::target::{TargetResult, ext::libraries::LibrariesSvr4};
+use gdbstub::target::{
+    TargetResult,
+    ext::{
+        libraries::LibrariesSvr4,
+        section_offsets::{Offsets, SectionOffsets},
+    },
+};
 use log::{debug, error, trace};
 use tagu::{build, prelude::*};
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
@@ -69,12 +75,18 @@ pub struct RDebug {
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, FromBytes, IntoBytes, Immutable, KnownLayout)]
-pub struct LinkMap {
+pub struct RLinkMap {
     pub l_addr: u64,
     pub l_name: u64,
     pub l_ld: u64,
     pub l_next: u64,
     pub l_prev: u64,
+}
+
+struct LinkMap {
+    pub l_addr: u64,
+    pub name: String,
+    pub l_ld: u64,
 }
 
 #[repr(C)]
@@ -191,60 +203,82 @@ impl EdbgTarget {
         .ok_or_else(|| anyhow!("DT_DEBUG entry not found in _DYNAMIC section"))
     }
 
+    fn get_target_load_offset(&mut self) -> Result<u64> {
+        let target_path_str = self
+            .target_path
+            .as_ref()
+            .map(|p| p.to_string_lossy().to_string())
+            .ok_or_else(|| anyhow!("target_path is not set"))?;
+        if self.r_debug_addr.is_none() {
+            debug!("r_debug_addr is None, parsing ELF to find it...");
+            self.r_debug_addr = Some(self.find_r_debug_addr()?);
+        }
+        let r_debug_addr = self.r_debug_addr.unwrap();
+        let r_debug = self.read_struct::<RDebug>(r_debug_addr)?;
+
+        self.get_link_map_iter(r_debug.r_map)
+            .find(|(_addr, map)| {
+                let name = &map.name;
+                !name.is_empty() && (*name == target_path_str || target_path_str.ends_with(name))
+            })
+            .map(|(_addr, link_map)| link_map.l_addr)
+            .ok_or(anyhow!("failed to find target path lib in link map"))
+    }
+
+    fn get_link_map_iter(&self, next_link_map: u64) -> impl Iterator<Item = (u64, LinkMap)> {
+        let mut next_link_map = next_link_map;
+        iter::from_fn(move || {
+            if next_link_map == 0 {
+                return None;
+            }
+            match self.read_struct::<RLinkMap>(next_link_map) {
+                Ok(map) => {
+                    trace!("Read link_map at {:#x}: {:?}", next_link_map, map);
+                    let current_addr = next_link_map;
+                    next_link_map = map.l_next;
+                    let map = LinkMap {
+                        l_addr: map.l_addr,
+                        name: (map.l_name != 0)
+                            .then(|| self.read_cstring(map.l_name, MAX_CSTRING_LEN).ok())
+                            .flatten()
+                            .unwrap_or_default(),
+                        l_ld: map.l_ld,
+                    };
+                    Some((current_addr, map))
+                }
+                Err(e) => {
+                    error!("Failed to read link_map at {:#x}: {}", next_link_map, e);
+                    None
+                }
+            }
+        })
+        .take(MAX_LINK_MAP_COUNT)
+    }
+
     fn generate_xml_from_memory(&self, r_debug_addr: u64) -> Result<String> {
         debug!("generate_xml_from_memory called");
-        let lib_elems = self
-            .read_struct::<RDebug>(r_debug_addr)
-            .inspect_err(|e| error!("Failed to read r_debug struct: {}", e))
-            .map(|r_debug| {
-                let mut next_link_map = r_debug.r_map;
-                iter::from_fn(|| {
-                    if next_link_map == 0 {
-                        return None;
-                    }
-                    match self.read_struct::<LinkMap>(next_link_map) {
-                        Ok(map) => {
-                            trace!("Read link_map at {:#x}: {:?}", next_link_map, map);
-                            let current_addr = next_link_map;
-                            next_link_map = map.l_next;
-                            Some((current_addr, map))
-                        }
-                        Err(e) => {
-                            error!("Failed to read link_map at {:#x}: {}", next_link_map, e);
-                            None
-                        }
-                    }
-                })
-                .take(MAX_LINK_MAP_COUNT)
-                .map(|(addr, map)| {
-                    let name = (map.l_name != 0)
-                        .then(|| self.read_cstring(map.l_name, MAX_CSTRING_LEN).ok())
-                        .flatten()
-                        .unwrap_or_default();
-
-                    // - name, the absolute file name from the l_name field of struct link_map.
-                    // - lm with address of struct link_map used for TLS (Thread Local Storage) access.
-                    // - l_addr, the displacement as read from the field l_addr of struct link_map. For prelinked libraries this is
-                    //   not an absolute memory address. It is a displacement of absolute memory address against address the file was
-                    //   prelinked to during the library load.
-                    // - l_ld, which is memory address of the PT_DYNAMIC segment
-                    // - lmid, which is an identifier for a linker namespace, such as the memory address of the r_debug object that
-                    //   contains this namespace’s load map or the namespace identifier returned by dlinfo (3).
-                    build::single("library").with(attrs!(
-                        ("name", name),
-                        ("lm", format_move!("{:#x}", addr)),
-                        ("l_addr", format_move!("{:#x}", map.l_addr)),
-                        ("l_ld", format_move!("{:#x}", map.l_ld)),
-                        ("lmid", 0)
-                    ))
-                })
-                .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
+        let r_debug = self.read_struct::<RDebug>(r_debug_addr)?;
+        let lib_iter = self.get_link_map_iter(r_debug.r_map).map(|(addr, map)| {
+            // - name, the absolute file name from the l_name field of struct link_map.
+            // - lm with address of struct link_map used for TLS (Thread Local Storage) access.
+            // - l_addr, the displacement as read from the field l_addr of struct link_map. For prelinked libraries this is
+            //   not an absolute memory address. It is a displacement of absolute memory address against address the file was
+            //   prelinked to during the library load.
+            // - l_ld, which is memory address of the PT_DYNAMIC segment
+            // - lmid, which is an identifier for a linker namespace, such as the memory address of the r_debug object that
+            //   contains this namespace’s load map or the namespace identifier returned by dlinfo (3).
+            build::single("library").with(attrs!(
+                ("name", map.name),
+                ("lm", format_move!("{:#x}", addr)),
+                ("l_addr", format_move!("{:#x}", map.l_addr)),
+                ("l_ld", format_move!("{:#x}", map.l_ld)),
+                ("lmid", 0)
+            ))
+        });
 
         let root = build::elem("library-list-svr4")
             .with(("version", "1.0"))
-            .append(build::from_iter(lib_elems.into_iter()));
+            .append(build::from_iter(lib_iter));
 
         let mut xml = String::new();
         tagu::render(root, &mut xml)?;
@@ -291,5 +325,24 @@ impl LibrariesSvr4 for EdbgTarget {
         let bytes_to_write = min(available, min(length, buf.len()));
         buf[0..bytes_to_write].copy_from_slice(&xml_bytes[offset..offset + bytes_to_write]);
         Ok(bytes_to_write)
+    }
+}
+
+impl SectionOffsets for EdbgTarget {
+    fn get_section_offsets(
+        &mut self,
+    ) -> std::result::Result<Offsets<<Self::Arch as gdbstub::arch::Arch>::Usize>, Self::Error> {
+        let offset = match self.get_target_load_offset() {
+            Ok(off) => off,
+            Err(e) => {
+                error!("Failed to get section offsets: {}", e);
+                return Err(e);
+            }
+        };
+        Ok(Offsets::Sections {
+            text: offset,
+            data: offset,
+            bss: Some(offset),
+        })
     }
 }

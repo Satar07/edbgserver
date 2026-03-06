@@ -434,18 +434,17 @@ impl EdbgTarget {
         break_point: u64,
         target_pid: Option<u32>,
     ) -> Result<()> {
+        let binary_target_path = binary_target.canonicalize()?;
         info!(
             "Attaching Initial UProbe at {}:{:#x}",
-            binary_target.canonicalize()?.as_os_str().display(),
+            binary_target_path.as_os_str().display(),
             break_point
         );
-        let link_id = self.get_probe_program().attach(
-            break_point,
-            binary_target.canonicalize()?,
-            target_pid,
-        )?;
+        let link_id =
+            self.get_probe_program()
+                .attach(break_point, binary_target_path, target_pid)?;
         self.bound_pid = target_pid;
-
+        self.target_path = Some(binary_target);
         self.init_probe_link_id = Some(BreakpointHandle::UProbe(link_id));
         Ok(())
     }
