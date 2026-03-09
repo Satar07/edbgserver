@@ -35,6 +35,7 @@ zip = "6.0.0"
 zerocopy = {version= "0.8.31", features = ["derive"] }
 goblin = "0.10.4"
 tagu = "0.1.6"
+thiserror = "2.0.18"
 [build-dependencies]
 anyhow = { workspace = true }
 aya-build = { workspace = true }

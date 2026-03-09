@@ -49,6 +49,19 @@ pub enum BreakpointHandle {
     Perf(Vec<PerfEventLinkId>),
 }
 
+use thiserror::Error;
+#[derive(Error, Debug)]
+pub enum BreakpointError {
+    #[error("invalid inst {0}")]
+    InvalidInst(String),
+    #[error("Procfs error: {0}")]
+    Procfs(#[from] procfs::ProcError),
+    #[error("Io error: {0}")]
+    IoError(#[from] std::io::Error),
+    #[error(transparent)]
+    Anyhow(#[from] anyhow::Error),
+}
+
 impl SwBreakpoint for EdbgTarget {
     fn add_sw_breakpoint(
         &mut self,
@@ -268,7 +281,10 @@ impl EdbgTarget {
         &mut self,
         addr: u64,
         specific_tid: Option<u32>,
-    ) -> Result<BreakpointHandle> {
+    ) -> Result<BreakpointHandle, BreakpointError> {
+        if let Some(inst) = self.not_valid_break_inst(addr)? {
+            return Err(BreakpointError::InvalidInst(inst));
+        }
         let (location, target) = self
             .resolve_vma_to_probe_location(addr)
             .context(format!("Failed to resolve VMA {:#x}", addr))?;
@@ -281,11 +297,8 @@ impl EdbgTarget {
             .get_probe_program()
             .attach(location, target.canonicalize()?, Some(target_tid))
             .map_err(|e| {
-                error!(
-                    "aya uprobe attach failed. location: {:#x}, target: {:?}, tid: {}. error: {:#?}",
-                    location, target, target_tid, e
-                );
-                anyhow::anyhow!("aya urpobe attach failed: {}", e)
+                anyhow::anyhow!("aya urpobe attach failed: location: {:#x}, target: {:?}, tid: {}. error: {:#?}",
+                location, target, target_tid, e)
             })?;
         Ok(BreakpointHandle::UProbe(link_id))
     }
@@ -294,9 +307,12 @@ impl EdbgTarget {
         &mut self,
         addr: u64,
         specific_tid: Option<u32>,
-    ) -> Result<BreakpointHandle> {
+    ) -> Result<BreakpointHandle, BreakpointError> {
         let pid = self.get_pid()?;
         debug!("Attaching perf event to {:#x} for process {}", addr, pid);
+        if let Some(inst) = self.not_valid_break_inst(addr)? {
+            return Err(BreakpointError::InvalidInst(inst));
+        }
         let config = PerfEventConfig::Breakpoint(BreakpointConfig::Instruction { address: addr });
         let sample_policy = SamplePolicy::Period(1);
         let tasks = if let Some(tid) = specific_tid {
@@ -326,11 +342,12 @@ impl EdbgTarget {
             let link_id = prog
                 .attach(config, scope, sample_policy, true)
                 .map_err(|e| {
-                    error!(
+                    anyhow::anyhow!(
                         "aya perf event attach failed. addr: {:#x}, tid: {}. error: {:#?}",
-                        addr, tid, e
-                    );
-                    anyhow::anyhow!("aya perf event attach failed for tid {}: {}", tid, e)
+                        addr,
+                        tid,
+                        e
+                    )
                 })?;
             trace!("Attached perf event to thread TID: {}", tid);
             links.push(link_id);

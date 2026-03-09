@@ -298,6 +298,37 @@ impl EdbgTarget {
             }
         }
     }
+
+    pub fn not_valid_break_inst(&self, addr: u64) -> Result<Option<String>> {
+        let code_buf = self.read_instruction_buf(addr)?;
+
+        let cs = Self::create_capstone()?;
+        let insns = cs.disasm_count(&code_buf, addr, 1)?;
+
+        if let Some(insn) = insns.first() {
+            let inst_id = insn.id().0;
+            let insn_enum = X86Insn::from(inst_id);
+            match insn_enum {
+                X86Insn::X86_INS_SYSCALL
+                | X86Insn::X86_INS_SYSENTER
+                | X86Insn::X86_INS_INT3
+                | X86Insn::X86_INS_INT
+                | X86Insn::X86_INS_INT1
+                | X86Insn::X86_INS_HLT
+                | X86Insn::X86_INS_UD2 => {
+                    let insn_str = insn.mnemonic().unwrap_or("unknown_inst").to_string();
+                    debug!(
+                        "addr {:#x} inst {} not support adding edbg breakpoint",
+                        addr, insn_str
+                    );
+                    return Ok(Some(insn_str));
+                }
+                _ => return Ok(None),
+            }
+        }
+
+        bail!("failed to disassemble x86_64 instruction at {:#x}", addr)
+    }
 }
 
 fn is_jcc(id: X86Insn) -> bool {

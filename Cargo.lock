@@ -560,6 +560,7 @@ dependencies = [
  "procfs",
  "serial_test",
  "tagu",
+ "thiserror",
  "tokio",
  "zerocopy",
  "zip",

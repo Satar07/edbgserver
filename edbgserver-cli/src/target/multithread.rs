@@ -17,7 +17,7 @@ use gdbstub::{
 use log::{debug, error, info, trace, warn};
 
 use crate::{
-    target::EdbgTarget,
+    target::{EdbgTarget, breakpoint::BreakpointError},
     utils::{send_sig_to_process, send_sig_to_thread, send_sigcont_to_thread},
 };
 
@@ -347,8 +347,15 @@ impl EdbgTarget {
                 info!("Successfully attached step breakpoint at {:#x}", next_pc);
                 self.temp_step_breakpoints = Some((next_pc, link_id));
             }
-            Err(e) => {
+            Err(BreakpointError::InvalidInst(inst)) => {
                 info!(
+                    "Invalid instruction encountered: {:?}, recursively stepping...",
+                    inst
+                );
+                self.single_step_thread(tid, next_pc)?;
+            }
+            Err(e) => {
+                error!(
                     "Failed to attach step breakpoint at {:#x}: {}. Checking for special cases...",
                     next_pc, e
                 );
@@ -358,7 +365,7 @@ impl EdbgTarget {
                         next_pc
                     );
                 }
-                info!(
+                warn!(
                     "Skipping un-attachable instruction at {:#x}, recursively stepping...",
                     next_pc
                 );

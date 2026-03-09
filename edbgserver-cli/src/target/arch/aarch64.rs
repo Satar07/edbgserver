@@ -306,6 +306,35 @@ impl EdbgTarget {
             }
         }
     }
+
+    pub fn not_valid_break_inst(&self, addr: u64) -> Result<Option<String>> {
+        let code = self.read_instruction(addr)?;
+        let code_byte = code.to_le_bytes();
+
+        let cs = EdbgTarget::create_capstone()?;
+        let insns = cs.disasm_count(&code_byte, addr, 1)?;
+
+        if let Some(insn) = insns.first() {
+            let inst_id = insn.id().0;
+            let insn_enum = Arm64Insn::from(inst_id);
+            match insn_enum {
+                Arm64Insn::ARM64_INS_SVC
+                | Arm64Insn::ARM64_INS_HVC
+                | Arm64Insn::ARM64_INS_SMC
+                | Arm64Insn::ARM64_INS_BRK
+                | Arm64Insn::ARM64_INS_HLT => {
+                    let insn_str = insn.mnemonic().unwrap_or("unknown_inst").to_string();
+                    debug!(
+                        "addr {:#x} inst {} not support adding edbg breakpoint",
+                        addr, insn_str
+                    );
+                    return Ok(Some(insn_str));
+                }
+                _ => return Ok(None),
+            }
+        }
+        bail!("failed to disassemble {:#x}", addr)
+    }
 }
 
 fn check_condition(cc: Arm64CC, pstate: u64) -> bool {
